@@ -3,6 +3,9 @@ import { NextResponse } from 'next/server'
 import { PDFDocument, rgb } from 'pdf-lib'
 import QRCode from 'qrcode'
 
+export const runtime = 'nodejs'
+export const preferredRegion = ['sin1', 'bom1', 'iad1']
+
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -10,131 +13,114 @@ const supabaseAdmin = createClient(
 
 export async function POST(request: Request) {
   try {
-    const { documentId, managerNote, stampType } = await request.json()
+    const { documentId, managerNote, stampType, customCoordinates } = await request.json()
 
-    // 1. Fetch document and manager signature
-    const { data: doc, error: docError } = await supabaseAdmin
-      .from('documents')
-      .select('*, profiles!documents_submitted_by_fkey(full_name)')
-      .eq('id', documentId)
-      .single()
+    // 1. Fetch document and manager profile in parallel
+    const [docResult, settingsResult, managersResult] = await Promise.all([
+      supabaseAdmin.from('documents').select('*').eq('id', documentId).single(),
+      supabaseAdmin.from('approval_settings').select('*').eq('id', 1).maybeSingle(),
+      supabaseAdmin.from('profiles').select('*').eq('role', 'manager').limit(1),
+    ])
 
-    if (docError || !doc) throw new Error('Document not found')
+    const doc = docResult.data
+    if (!doc) throw new Error('Document not found')
 
-    // Fetch approval settings
-    const { data: settings } = await supabaseAdmin
-      .from('approval_settings')
-      .select('*')
-      .eq('id', 1)
-      .single()
-
-    // Fetch manager profile with signature
-    const { data: managers } = await supabaseAdmin
-      .from('profiles')
-      .select('*')
-      .eq('role', 'manager')
-      .limit(1)
-
-    const manager = managers?.[0]
+    const settings = settingsResult.data
+    const manager = managersResult.data?.[0]
     const signatureUrl = manager?.signature_url
 
-    // 2. Download original PDF bytes
-    const pdfResponse = await fetch(doc.file_url)
-    const pdfBytes = await pdfResponse.arrayBuffer()
+    // 2. Fetch original PDF & Manager signature in parallel
+    const [pdfResponse, sigResponse] = await Promise.all([
+      fetch(doc.file_url),
+      signatureUrl ? fetch(signatureUrl) : Promise.resolve(null),
+    ])
 
+    const pdfBytes = await pdfResponse.arrayBuffer()
     const pdfDoc = await PDFDocument.load(pdfBytes)
     const pages = pdfDoc.getPages()
     const lastPage = pages[pages.length - 1]
     const { width, height } = lastPage.getSize()
 
-    // 3. Coordinate mapping based on settings
-    const sigPos = settings?.signature_position || 'bottom-right'
-    let sigX = width - 160
-    let sigY = 60
+    // 3. Exact target coordinates mapping
+    let targetX = width - 180
+    let targetY = 70
 
-    if (sigPos === 'bottom-left') {
-      sigX = 50
-      sigY = 60
-    } else if (sigPos === 'top-right') {
-      sigX = width - 160
-      sigY = height - 120
+    if (customCoordinates && typeof customCoordinates.x === 'number') {
+      targetX = (customCoordinates.x / 100) * width - 60
+      targetY = height - (customCoordinates.y / 100) * height - 30
     }
 
-    // Draw Signature Image if available
-    if (signatureUrl) {
+    targetX = Math.max(20, Math.min(width - 160, targetX))
+    targetY = Math.max(30, Math.min(height - 70, targetY))
+
+    // 4. Draw Signature Image
+    if (sigResponse && sigResponse.ok) {
       try {
-        const sigRes = await fetch(signatureUrl)
-        const sigBytes = await sigRes.arrayBuffer()
-        const sigImage = signatureUrl.includes('png') 
-          ? await pdfDoc.embedPng(sigBytes) 
+        const sigBytes = await sigResponse.arrayBuffer()
+        const sigImage = signatureUrl.includes('png')
+          ? await pdfDoc.embedPng(sigBytes)
           : await pdfDoc.embedJpg(sigBytes)
 
         lastPage.drawImage(sigImage, {
-          x: sigX,
-          y: sigY,
-          width: 110,
-          height: 45,
+          x: targetX,
+          y: targetY,
+          width: 95,
+          height: 38,
         })
       } catch (e) {
         console.error('Failed to embed signature image:', e)
       }
     }
 
-    // 4. Date & Time & Comment Placement
+    // 5. Date & Manager Remarks
     const timestampStr = new Date().toLocaleString()
     const commentText = managerNote ? `Note: ${managerNote}` : 'Authorized & Endorsed'
     const stampLabel = `[ ${stampType} ]`
 
-    let commentY = sigY - 15
-    if (settings?.comment_position === 'above-signature') {
-      commentY = sigY + 55
-    }
-
     lastPage.drawText(stampLabel, {
-      x: sigX,
-      y: commentY + 12,
+      x: targetX,
+      y: targetY + 42,
       size: 9,
       color: rgb(0.1, 0.5, 0.2),
     })
 
     lastPage.drawText(commentText, {
-      x: sigX,
-      y: commentY,
+      x: targetX,
+      y: targetY - 10,
       size: 8,
       color: rgb(0.2, 0.2, 0.2),
     })
 
     if (settings?.include_datetime !== false) {
-      const dtY = settings?.datetime_position === 'attached-to-comment' ? commentY - 10 : sigY - 25
       lastPage.drawText(`Date: ${timestampStr}`, {
-        x: sigX,
-        y: dtY,
+        x: targetX,
+        y: targetY - 20,
         size: 7,
         color: rgb(0.4, 0.4, 0.4),
       })
     }
 
-    // 5. Verification Code & QR Code Generation
+    // 6. Verification Code & QR
     const verificationCode = `CEY-VIP-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
-    
+
     if (settings?.include_qr !== false) {
       try {
         const verifyUrl = `${process.env.NEXT_PUBLIC_SITE_URL || 'https://ceylinco-approval-system.vercel.app'}/verify?code=${verificationCode}`
-        const qrDataUrl = await QRCode.toDataURL(verifyUrl)
+        const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1 })
         const base64Data = qrDataUrl.replace(/^data:image\/png;base64,/, '')
         const qrImageBytes = Buffer.from(base64Data, 'base64')
         const qrImage = await pdfDoc.embedPng(qrImageBytes)
 
         lastPage.drawImage(qrImage, {
-          x: sigPos === 'bottom-left' ? width - 90 : 50,
-          y: 50,
-          width: 50,
-          height: 50,
+          x: targetX > width / 2 ? 40 : width - 80,
+          y: 40,
+          width: 45,
+          height: 45,
         })
 
-        lastPage.drawText(`Verify Code: ${verificationCode}`, {
-          x: sigPos === 'bottom-left' ? width - 110 : 50,
-          y: 38,
+        lastPage.drawText(`Code: ${verificationCode}`, {
+          x: targetX > width / 2 ? 40 : width - 80,
+          y: 30,
           size: 6,
           color: rgb(0.3, 0.3, 0.3),
         })
@@ -143,17 +129,16 @@ export async function POST(request: Request) {
       }
     }
 
-    // 6. Watermark
+    // 7. Watermark
     if (settings?.include_watermark !== false) {
       lastPage.drawText('Certified via Ceylinco VIP Approval Network • Powered by Ceylon Digi Solutions', {
-        x: 50,
-        y: 20,
+        x: 40,
+        y: 15,
         size: 6,
         color: rgb(0.6, 0.6, 0.6),
       })
     }
 
-    // 7. Save Signed PDF
     const modifiedPdfBytes = await pdfDoc.save()
     const signedFilePath = `signed/${Date.now()}_${doc.title}.pdf`
 
@@ -165,7 +150,6 @@ export async function POST(request: Request) {
       .from('documents')
       .getPublicUrl(signedFilePath)
 
-    // Update DB record
     await supabaseAdmin
       .from('documents')
       .update({

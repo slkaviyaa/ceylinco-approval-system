@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, Suspense } from 'react'
+import { useEffect, useState, useRef, Suspense, useMemo, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import SidebarLayout from '@/components/SidebarLayout'
@@ -37,7 +37,8 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Move
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { PDFDocument } from 'pdf-lib'
@@ -96,19 +97,50 @@ function DashboardContent() {
   const [scannedPages, setScannedPages] = useState<{ id: string; blob: Blob; preview: string }[]>([])
   const [isProcessingPdf, setIsProcessingPdf] = useState(false)
 
-  // Manager action dialog state
+  // Manager interactive drag action state
   const [actionDialogOpen, setActionDialogOpen] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null)
   const [managerNote, setManagerNote] = useState('')
   const [stampType, setStampType] = useState('APPROVED')
   const [actionLoading, setActionLoading] = useState(false)
 
+  // Draggable placement coordinates (percentage: 0 to 100)
+  const [stampPos, setStampPos] = useState({ x: 65, y: 75 })
+  const [isDragging, setIsDragging] = useState(false)
+  const canvasRef = useRef<HTMLDivElement>(null)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
   const searchParams = useSearchParams()
   const currentView = searchParams.get('view') || 'my-pending'
+
+  const fetchDocuments = useCallback(async () => {
+    // Lean selective column query with limit for maximum performance
+    const { data } = await supabase
+      .from('documents')
+      .select('id, title, file_url, signed_file_url, status, stamp_type, category, priority, verification_code, sender_note, manager_note, submitted_by, submitted_by_name, counter_name, created_at')
+      .order('created_at', { ascending: false })
+      .limit(60)
+
+    if (data) {
+      setDocuments(data as DocumentItem[])
+    }
+  }, [supabase])
+
+  const loadUserData = useCallback(async (user: any) => {
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (profileData) {
+      setProfile(profileData as Profile)
+    }
+    setLoading(false)
+  }, [supabase])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -136,7 +168,9 @@ function DashboardContent() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'documents' },
-        fetchDocuments
+        () => {
+          fetchDocuments()
+        }
       )
       .subscribe()
 
@@ -144,31 +178,7 @@ function DashboardContent() {
       authListener?.unsubscribe()
       supabase.removeChannel(channel)
     }
-  }, [])
-
-  const loadUserData = async (user: any) => {
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    if (profileData) {
-      setProfile(profileData as Profile)
-    }
-    setLoading(false)
-  }
-
-  const fetchDocuments = async () => {
-    const { data } = await supabase
-      .from('documents')
-      .select('*')
-      .order('created_at', { ascending: false })
-
-    if (data) {
-      setDocuments(data as DocumentItem[])
-    }
-  }
+  }, [supabase, router, loadUserData, fetchDocuments])
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -246,13 +256,21 @@ function DashboardContent() {
       setSenderNote('')
       setSelectedFile(null)
       setScannedPages([])
-      setBannerMsg({ type: 'success', text: 'Document submitted successfully for manager approval!' })
+      setBannerMsg({ type: 'success', text: 'Document submitted successfully!' })
       fetchDocuments()
     } catch (err: any) {
       setBannerMsg({ type: 'error', text: err.message || 'Upload failed' })
     } finally {
       setUploading(false)
     }
+  }
+
+  const handleCanvasMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !canvasRef.current) return
+    const rect = canvasRef.current.getBoundingClientRect()
+    const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
+    const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100))
+    setStampPos({ x, y })
   }
 
   const handleManagerDecision = async (status: 'approved' | 'rejected') => {
@@ -267,6 +285,7 @@ function DashboardContent() {
             documentId: selectedDoc.id,
             managerNote,
             stampType,
+            customCoordinates: stampPos,
           }),
         })
         const data = await res.json()
@@ -294,6 +313,43 @@ function DashboardContent() {
     }
   }
 
+  // Memoized search and tab filtering
+  const filteredSearchDocs = useMemo(() => {
+    return documents.filter((doc) =>
+      doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      doc.submitted_by_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (doc.verification_code && doc.verification_code.toLowerCase().includes(searchQuery.toLowerCase()))
+    )
+  }, [documents, searchQuery])
+
+  const myDocs = useMemo(() => {
+    return filteredSearchDocs.filter((d) => d.submitted_by === profile?.id)
+  }, [filteredSearchDocs, profile?.id])
+
+  const { displayedDocs, viewTitle } = useMemo(() => {
+    if (currentView === 'branch-pending') {
+      return { displayedDocs: filteredSearchDocs.filter((d) => d.status === 'pending'), viewTitle: 'Branch Pending Queue' }
+    } else if (currentView === 'branch-approved') {
+      return { displayedDocs: filteredSearchDocs.filter((d) => d.status === 'approved'), viewTitle: 'All Branch Approved Documents' }
+    } else if (currentView === 'branch-rejected') {
+      return { displayedDocs: filteredSearchDocs.filter((d) => d.status === 'rejected'), viewTitle: 'All Branch Rejected Documents' }
+    } else if (currentView === 'branch-all') {
+      return { displayedDocs: filteredSearchDocs, viewTitle: 'All Branch Submitted Documents' }
+    } else if (currentView === 'my-approved') {
+      return { displayedDocs: myDocs.filter((d) => d.status === 'approved'), viewTitle: 'My Approved Submissions' }
+    } else if (currentView === 'my-rejected') {
+      return { displayedDocs: myDocs.filter((d) => d.status === 'rejected'), viewTitle: 'My Rejected Submissions' }
+    } else if (currentView === 'my-all') {
+      return { displayedDocs: myDocs, viewTitle: 'All My Submissions' }
+    } else {
+      return { displayedDocs: myDocs.filter((d) => d.status === 'pending'), viewTitle: 'My Pending Submissions' }
+    }
+  }, [currentView, filteredSearchDocs, myDocs])
+
+  const myPendingCount = useMemo(() => myDocs.filter((d) => d.status === 'pending').length, [myDocs])
+  const myApprovedCount = useMemo(() => myDocs.filter((d) => d.status === 'approved').length, [myDocs])
+  const myRejectedCount = useMemo(() => myDocs.filter((d) => d.status === 'rejected').length, [myDocs])
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400">
@@ -303,52 +359,9 @@ function DashboardContent() {
     )
   }
 
-  // Filtering documents based on sidebar view param
-  const filteredSearchDocs = documents.filter((doc) =>
-    doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    doc.submitted_by_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (doc.verification_code && doc.verification_code.toLowerCase().includes(searchQuery.toLowerCase()))
-  )
-
-  const myDocs = filteredSearchDocs.filter((d) => d.submitted_by === profile?.id)
-
-  let displayedDocs: DocumentItem[] = []
-  let viewTitle = 'My Pending Submissions'
-
-  if (currentView === 'branch-pending') {
-    displayedDocs = filteredSearchDocs.filter((d) => d.status === 'pending')
-    viewTitle = 'Branch Pending Queue'
-  } else if (currentView === 'branch-approved') {
-    displayedDocs = filteredSearchDocs.filter((d) => d.status === 'approved')
-    viewTitle = 'All Branch Approved Documents'
-  } else if (currentView === 'branch-rejected') {
-    displayedDocs = filteredSearchDocs.filter((d) => d.status === 'rejected')
-    viewTitle = 'All Branch Rejected Documents'
-  } else if (currentView === 'branch-all') {
-    displayedDocs = filteredSearchDocs
-    viewTitle = 'All Branch Submitted Documents'
-  } else if (currentView === 'my-approved') {
-    displayedDocs = myDocs.filter((d) => d.status === 'approved')
-    viewTitle = 'My Approved Submissions'
-  } else if (currentView === 'my-rejected') {
-    displayedDocs = myDocs.filter((d) => d.status === 'rejected')
-    viewTitle = 'My Rejected Submissions'
-  } else if (currentView === 'my-all') {
-    displayedDocs = myDocs
-    viewTitle = 'All My Submissions'
-  } else {
-    displayedDocs = myDocs.filter((d) => d.status === 'pending')
-    viewTitle = 'My Pending Submissions'
-  }
-
-  const myPendingCount = myDocs.filter((d) => d.status === 'pending').length
-  const myApprovedCount = myDocs.filter((d) => d.status === 'approved').length
-  const myRejectedCount = myDocs.filter((d) => d.status === 'rejected').length
-
   return (
     <SidebarLayout profile={profile} onSignOut={handleSignOut}>
       <div className="space-y-6">
-        {/* Banner Alert (In-App Toast) */}
         {bannerMsg && (
           <div className={`p-3 rounded-lg text-xs flex items-center justify-between border ${
             bannerMsg.type === 'success' 
@@ -363,7 +376,6 @@ function DashboardContent() {
           </div>
         )}
 
-        {/* Header Bar */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h2 className="text-2xl font-bold text-white tracking-tight">{viewTitle}</h2>
@@ -379,7 +391,6 @@ function DashboardContent() {
           </Button>
         </div>
 
-        {/* Quick KPI Overview */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card className="bg-slate-900 border-slate-800">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -412,7 +423,6 @@ function DashboardContent() {
           </Card>
         </div>
 
-        {/* Search Bar */}
         <div className="relative w-full max-w-md">
           <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
           <Input
@@ -423,7 +433,6 @@ function DashboardContent() {
           />
         </div>
 
-        {/* Document Table */}
         <DocumentTable
           docs={displayedDocs}
           profile={profile}
@@ -434,7 +443,7 @@ function DashboardContent() {
         />
       </div>
 
-      {/* Upload Modal */}
+      {/* Upload Dialog */}
       {uploadDialogOpen && (
         <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
           <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-xl max-h-[90vh] overflow-y-auto">
@@ -516,53 +525,22 @@ function DashboardContent() {
                   </Button>
                 </div>
 
-                <input
-                  ref={cameraInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={handlePageCapture}
-                />
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="application/pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    setSelectedFile(e.target.files?.[0] || null)
-                    setScannedPages([])
-                  }}
-                />
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePageCapture} />
+                <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={(e) => { setSelectedFile(e.target.files?.[0] || null); setScannedPages([]) }} />
 
                 {scannedPages.length > 0 && (
                   <div className="space-y-2 p-3 bg-slate-950 rounded border border-slate-800">
                     <div className="flex justify-between items-center text-xs text-slate-300">
                       <span>Captured Pages ({scannedPages.length})</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={buildMultiPagePdf}
-                        disabled={isProcessingPdf}
-                        className="h-7 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px]"
-                      >
+                      <Button type="button" size="sm" onClick={buildMultiPagePdf} disabled={isProcessingPdf} className="h-7 bg-emerald-600 text-white text-[11px]">
                         {isProcessingPdf ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : 'Compile to PDF'}
                       </Button>
                     </div>
                     <div className="flex gap-2 overflow-x-auto py-1">
                       {scannedPages.map((page, idx) => (
-                        <div
-                          key={page.id}
-                          className="relative w-14 h-18 bg-slate-900 rounded border border-slate-700 shrink-0 overflow-hidden"
-                        >
+                        <div key={page.id} className="relative w-14 h-18 bg-slate-900 rounded border border-slate-700 shrink-0 overflow-hidden">
                           <img src={page.preview} alt={`P.${idx + 1}`} className="w-full h-full object-cover" />
-                          <button
-                            type="button"
-                            onClick={() => removeScannedPage(page.id)}
-                            className="absolute top-0.5 right-0.5 bg-rose-600 text-white rounded p-0.5 text-[9px]"
-                          >
-                            ✕
-                          </button>
+                          <button type="button" onClick={() => removeScannedPage(page.id)} className="absolute top-0.5 right-0.5 bg-rose-600 text-white rounded p-0.5 text-[9px]">✕</button>
                         </div>
                       ))}
                     </div>
@@ -578,19 +556,8 @@ function DashboardContent() {
               </div>
 
               <DialogFooter className="pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setUploadDialogOpen(false)}
-                  className="border-slate-700 text-slate-300 text-xs"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={uploading || !selectedFile}
-                  className="bg-blue-600 hover:bg-blue-500 text-white text-xs"
-                >
+                <Button type="button" variant="outline" onClick={() => setUploadDialogOpen(false)} className="border-slate-700 text-slate-300 text-xs">Cancel</Button>
+                <Button type="submit" disabled={uploading || !selectedFile} className="bg-blue-600 hover:bg-blue-500 text-white text-xs">
                   {uploading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <UploadCloud className="w-3.5 h-3.5 mr-1.5" />}
                   Submit Document
                 </Button>
@@ -600,84 +567,129 @@ function DashboardContent() {
         </Dialog>
       )}
 
-      {/* Manager Decision Modal */}
+      {/* Interactive Visual Stamp Canvas Dialog */}
       {actionDialogOpen && (
         <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
-          <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-lg">
+          <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-4xl max-h-[92vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="text-white text-base">Document Endorsement & Processing</DialogTitle>
+              <DialogTitle className="text-white text-base flex items-center gap-2">
+                <Move className="w-4 h-4 text-blue-400" />
+                Visual Document Endorsement & Placement
+              </DialogTitle>
             </DialogHeader>
-            <div className="space-y-3 my-2 text-xs">
-              <div className="p-3 bg-slate-950 rounded border border-slate-800 space-y-1">
-                <p className="text-slate-400">
-                  <span className="font-semibold text-slate-300">Title:</span> {selectedDoc?.title}
-                </p>
-                <p className="text-slate-400">
-                  <span className="font-semibold text-slate-300">Counter:</span> {selectedDoc?.counter_name} |{' '}
-                  <span className="font-semibold text-slate-300">Officer:</span> {selectedDoc?.submitted_by_name}
-                </p>
-                {selectedDoc?.sender_note && (
-                  <p className="text-slate-400">
-                    <span className="font-semibold text-slate-300">Note:</span> {selectedDoc.sender_note}
-                  </p>
-                )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 my-2">
+              <div className="space-y-4 text-xs">
+                <div className="p-3 bg-slate-950 rounded border border-slate-800 space-y-1">
+                  <p className="text-slate-300 font-semibold truncate">{selectedDoc?.title}</p>
+                  <p className="text-slate-400">{selectedDoc?.counter_name} • {selectedDoc?.submitted_by_name}</p>
+                  {selectedDoc?.sender_note && (
+                    <p className="text-slate-400 italic">"{selectedDoc.sender_note}"</p>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-slate-200 text-xs">Endorsement Stamp Type</Label>
+                  <select
+                    value={stampType}
+                    onChange={(e) => setStampType(e.target.value)}
+                    className="w-full h-9 px-3 rounded bg-slate-950 border border-slate-700 text-white text-xs"
+                  >
+                    <option value="APPROVED">APPROVED & AUTHORIZED</option>
+                    <option value="RECOMMENDED">RECOMMENDED</option>
+                    <option value="VERIFIED">VERIFIED & CERTIFIED</option>
+                    <option value="SIGN_ONLY">SIGNATURE & SEAL ONLY</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-slate-200 text-xs">Manager Remarks / Comment</Label>
+                  <Input
+                    placeholder="e.g. Approved and processed"
+                    value={managerNote}
+                    onChange={(e) => setManagerNote(e.target.value)}
+                    className="bg-slate-950 border-slate-700 text-white text-xs h-9"
+                  />
+                </div>
+
+                <div className="p-3 bg-blue-950/30 border border-blue-800/60 rounded text-[11px] text-blue-300 leading-relaxed">
+                  💡 <strong>Drag the stamp box</strong> on the right page canvas to position signature and remarks anywhere on the document.
+                </div>
+
+                <div className="pt-2 flex flex-col gap-2">
+                  <Button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => handleManagerDecision('approved')}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-10 w-full font-semibold shadow-md"
+                  >
+                    {actionLoading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />}
+                    Finish & Endorse Document
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={actionLoading}
+                    onClick={() => handleManagerDecision('rejected')}
+                    className="text-rose-400 border-rose-800/80 hover:bg-rose-950 text-xs h-8 w-full"
+                  >
+                    <XCircle className="w-3.5 h-3.5 mr-1.5" />
+                    Reject Submission
+                  </Button>
+                </div>
               </div>
 
-              <a
-                href={selectedDoc?.file_url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-400 hover:underline inline-flex items-center gap-1"
-              >
-                <FileText className="w-3.5 h-3.5" /> View Uploaded Original PDF
-              </a>
-
-              <div className="space-y-1">
-                <Label className="text-slate-200 text-xs">Endorsement Stamp Type</Label>
-                <select
-                  value={stampType}
-                  onChange={(e) => setStampType(e.target.value)}
-                  className="w-full h-9 px-3 rounded bg-slate-950 border border-slate-700 text-white text-xs"
+              <div className="md:col-span-2 space-y-2">
+                <p className="text-[11px] text-slate-400">Document Page Canvas (Drag stamp box):</p>
+                <div
+                  ref={canvasRef}
+                  onMouseMove={handleCanvasMouseMove}
+                  onMouseUp={() => setIsDragging(false)}
+                  onMouseLeave={() => setIsDragging(false)}
+                  className="relative w-full h-[420px] bg-slate-100 rounded-lg border-2 border-dashed border-slate-700 shadow-inner overflow-hidden select-none cursor-crosshair flex items-center justify-center"
                 >
-                  <option value="APPROVED">APPROVED & AUTHORIZED</option>
-                  <option value="RECOMMENDED">RECOMMENDED</option>
-                  <option value="VERIFIED">VERIFIED & CERTIFIED</option>
-                  <option value="SIGN_ONLY">SIGNATURE & SEAL ONLY</option>
-                </select>
-              </div>
+                  <iframe
+                    src={`${selectedDoc?.file_url}#toolbar=0&navpanes=0&scrollbar=0`}
+                    loading="lazy"
+                    className="w-full h-full pointer-events-none opacity-80"
+                    title="Doc Preview"
+                  />
 
-              <div className="space-y-1">
-                <Label className="text-slate-200 text-xs">Manager Remarks / Notes</Label>
-                <Input
-                  placeholder="e.g. Endorsed and processed"
-                  value={managerNote}
-                  onChange={(e) => setManagerNote(e.target.value)}
-                  className="bg-slate-950 border-slate-700 text-white text-xs h-9"
-                />
+                  <div
+                    onMouseDown={() => setIsDragging(true)}
+                    style={{
+                      left: `${stampPos.x}%`,
+                      top: `${stampPos.y}%`,
+                      transform: 'translate(-50%, -50%)',
+                    }}
+                    className={`absolute p-2.5 rounded border-2 shadow-2xl transition-shadow cursor-grab active:cursor-grabbing bg-white/95 backdrop-blur text-slate-900 ${
+                      isDragging ? 'border-blue-600 ring-4 ring-blue-500/20' : 'border-emerald-600'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 border-b border-slate-200 pb-1 mb-1">
+                      <span className="text-[9px] font-bold uppercase text-emerald-700">[{stampType}]</span>
+                      <Move className="w-3 h-3 text-slate-400 ml-auto" />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="w-14 h-6 border border-dashed border-slate-300 rounded bg-slate-50 flex items-center justify-center text-[8px] text-slate-400 font-mono">
+                        [Signature]
+                      </div>
+                      <div className="w-6 h-6 bg-slate-900 text-white rounded flex items-center justify-center text-[7px] font-bold">
+                        QR
+                      </div>
+                    </div>
+
+                    {managerNote && (
+                      <p className="text-[8px] text-slate-600 mt-1 truncate max-w-[120px]">
+                        Note: {managerNote}
+                      </p>
+                    )}
+                    <p className="text-[7px] text-slate-400 mt-0.5">Date: {format(new Date(), 'dd/MM/yyyy')}</p>
+                  </div>
+                </div>
               </div>
             </div>
-
-            <DialogFooter className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={actionLoading}
-                onClick={() => handleManagerDecision('rejected')}
-                className="text-rose-400 border-rose-800 hover:bg-rose-950 text-xs"
-              >
-                <XCircle className="w-3.5 h-3.5 mr-1" />
-                Reject
-              </Button>
-              <Button
-                type="button"
-                disabled={actionLoading}
-                onClick={() => handleManagerDecision('approved')}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
-              >
-                {actionLoading ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <PenTool className="w-3.5 h-3.5 mr-1" />}
-                Apply Stamp & Sign
-              </Button>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
@@ -780,7 +792,7 @@ function DocumentTable({
                     onClick={() => onActionClick(doc)}
                     className="bg-blue-600 hover:bg-blue-500 text-white text-[11px] h-7"
                   >
-                    <PenTool className="w-3 h-3 mr-1" /> Process
+                    <PenTool className="w-3 h-3 mr-1" /> Endorse
                   </Button>
                 )}
 

@@ -1,14 +1,14 @@
 {
-  "name": "Ceylinco VIP Approval",
-  "short_name": "Ceylinco VIP",
-  "description": "Dehiattakandiya Branch & VIP Counter Digital Approval System",
   "id": "/",
+  "name": "Ceylinco VIP Approval System",
+  "short_name": "Ceylinco VIP",
+  "description": "Dehiattakandiya Branch & VIP Counter Network",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
+  "orientation": "portrait-primary",
   "background_color": "#020617",
   "theme_color": "#020617",
-  "orientation": "portrait-primary",
   "icons": [
     {
       "src": "/icon-192.png",

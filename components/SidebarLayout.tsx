@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { 
@@ -15,17 +15,41 @@ import {
   XCircle, 
   FileText, 
   Layers,
-  Sliders
+  Sliders,
+  DownloadCloud
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export default function SidebarLayout({ children, profile, onSignOut }: any) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
+  const [isInstallable, setIsInstallable] = useState(false)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const currentView = searchParams.get('view') || 'my-pending'
 
-  const isPrivileged = profile?.role === 'manager' || profile?.role === 'admin'
+  const isManagerOrAdmin = profile?.role === 'manager' || profile?.role === 'admin'
+
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault()
+      setDeferredPrompt(e)
+      setIsInstallable(true)
+    }
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall)
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall)
+  }, [])
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return
+    deferredPrompt.prompt()
+    const { outcome } = await deferredPrompt.userChoice
+    if (outcome === 'accepted') {
+      setIsInstallable(false)
+    }
+    setDeferredPrompt(null)
+  }
 
   const getRoleBadge = () => {
     if (profile?.role === 'admin') return 'System Administrator'
@@ -36,7 +60,6 @@ export default function SidebarLayout({ children, profile, onSignOut }: any) {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
-      {/* Mobile Overlay */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-slate-950/80 backdrop-blur-sm lg:hidden"
@@ -44,7 +67,6 @@ export default function SidebarLayout({ children, profile, onSignOut }: any) {
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-slate-800 flex flex-col justify-between transition-transform duration-300 lg:translate-x-0 lg:static ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -82,7 +104,7 @@ export default function SidebarLayout({ children, profile, onSignOut }: any) {
 
           {/* Navigation Links */}
           <div className="px-3 py-2 space-y-5 flex-1">
-            {/* My Submissions Section */}
+            {/* My Submissions */}
             <div>
               <p className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase mb-1.5">
                 My Submissions
@@ -142,67 +164,65 @@ export default function SidebarLayout({ children, profile, onSignOut }: any) {
               </div>
             </div>
 
-            {/* Branch / All Queues Section (Privileged) */}
-            {isPrivileged && (
-              <div>
-                <p className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase mb-1.5">
-                  Branch Queues
-                </p>
-                <div className="space-y-1">
-                  <Link
-                    href="/dashboard?view=branch-pending"
-                    onClick={() => setSidebarOpen(false)}
-                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition ${
-                      pathname === '/dashboard' && currentView === 'branch-pending'
-                        ? 'bg-amber-600 text-white shadow'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                  >
-                    <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <span>All Pending</span>
-                  </Link>
+            {/* Branch Queues */}
+            <div>
+              <p className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase mb-1.5">
+                Branch Directory
+              </p>
+              <div className="space-y-1">
+                <Link
+                  href="/dashboard?view=branch-pending"
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition ${
+                    pathname === '/dashboard' && currentView === 'branch-pending'
+                      ? 'bg-amber-600 text-white shadow'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>All Pending</span>
+                </Link>
 
-                  <Link
-                    href="/dashboard?view=branch-approved"
-                    onClick={() => setSidebarOpen(false)}
-                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition ${
-                      pathname === '/dashboard' && currentView === 'branch-approved'
-                        ? 'bg-emerald-700 text-white shadow'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
-                    <span>All Approved</span>
-                  </Link>
+                <Link
+                  href="/dashboard?view=branch-approved"
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition ${
+                    pathname === '/dashboard' && currentView === 'branch-approved'
+                      ? 'bg-emerald-700 text-white shadow'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                  <span>All Approved</span>
+                </Link>
 
-                  <Link
-                    href="/dashboard?view=branch-rejected"
-                    onClick={() => setSidebarOpen(false)}
-                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition ${
-                      pathname === '/dashboard' && currentView === 'branch-rejected'
-                        ? 'bg-rose-700 text-white shadow'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                  >
-                    <XCircle className="w-3.5 h-3.5 text-rose-300 shrink-0" />
-                    <span>All Rejected</span>
-                  </Link>
+                <Link
+                  href="/dashboard?view=branch-rejected"
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition ${
+                    pathname === '/dashboard' && currentView === 'branch-rejected'
+                      ? 'bg-rose-700 text-white shadow'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  <XCircle className="w-3.5 h-3.5 text-rose-300 shrink-0" />
+                  <span>All Rejected</span>
+                </Link>
 
-                  <Link
-                    href="/dashboard?view=branch-all"
-                    onClick={() => setSidebarOpen(false)}
-                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition ${
-                      pathname === '/dashboard' && currentView === 'branch-all'
-                        ? 'bg-slate-800 text-white shadow'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                  >
-                    <FileText className="w-3.5 h-3.5 text-slate-300 shrink-0" />
-                    <span>All Submitted Docs</span>
-                  </Link>
-                </div>
+                <Link
+                  href="/dashboard?view=branch-all"
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition ${
+                    pathname === '/dashboard' && currentView === 'branch-all'
+                      ? 'bg-slate-800 text-white shadow'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                  <span>All Submitted Docs</span>
+                </Link>
               </div>
-            )}
+            </div>
 
             {/* General Settings */}
             <div>
@@ -232,7 +252,7 @@ export default function SidebarLayout({ children, profile, onSignOut }: any) {
                   <span>About Developers</span>
                 </Link>
 
-                {isPrivileged && (
+                {isManagerOrAdmin && (
                   <Link
                     href="/settings"
                     onClick={() => setSidebarOpen(false)}
@@ -250,6 +270,17 @@ export default function SidebarLayout({ children, profile, onSignOut }: any) {
 
           {/* Bottom Footer */}
           <div className="p-3 border-t border-slate-800 bg-slate-950/40 shrink-0 space-y-2">
+            {isInstallable && (
+              <Button
+                type="button"
+                onClick={handleInstallClick}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs h-8 justify-start"
+              >
+                <DownloadCloud className="w-3.5 h-3.5 mr-2" />
+                Install Ceylinco App
+              </Button>
+            )}
+
             <Button
               variant="outline"
               size="sm"
