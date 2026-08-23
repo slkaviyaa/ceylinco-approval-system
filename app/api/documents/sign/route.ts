@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   try {
     const { documentId, managerNote, stampType, customCoordinates } = await request.json()
 
-    // 1. Fetch document and manager profile in parallel
+    // 1. Fetch document and manager profile
     const [docResult, settingsResult, managersResult] = await Promise.all([
       supabaseAdmin.from('documents').select('*').eq('id', documentId).single(),
       supabaseAdmin.from('approval_settings').select('*').eq('id', 1).maybeSingle(),
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     const manager = managersResult.data?.[0]
     const signatureUrl = manager?.signature_url
 
-    // 2. Fetch original PDF & Manager signature in parallel
+    // 2. Fetch original PDF & Manager signature
     const [pdfResponse, sigResponse] = await Promise.all([
       fetch(doc.file_url),
       signatureUrl ? fetch(signatureUrl) : Promise.resolve(null),
@@ -42,18 +42,18 @@ export async function POST(request: Request) {
     const { width, height } = lastPage.getSize()
 
     // 3. Exact target coordinates mapping
-    let targetX = width - 180
-    let targetY = 70
+    let targetX = width - 200
+    let targetY = 80
 
     if (customCoordinates && typeof customCoordinates.x === 'number') {
-      targetX = (customCoordinates.x / 100) * width - 60
-      targetY = height - (customCoordinates.y / 100) * height - 30
+      targetX = (customCoordinates.x / 100) * width - 80
+      targetY = height - (customCoordinates.y / 100) * height - 40
     }
 
-    targetX = Math.max(20, Math.min(width - 160, targetX))
-    targetY = Math.max(30, Math.min(height - 70, targetY))
+    targetX = Math.max(20, Math.min(width - 200, targetX))
+    targetY = Math.max(30, Math.min(height - 100, targetY))
 
-    // 4. Draw Signature Image
+    // 4. Draw Signature Image with Large High-Resolution Scale
     if (sigResponse && sigResponse.ok) {
       try {
         const sigBytes = await sigResponse.arrayBuffer()
@@ -64,43 +64,45 @@ export async function POST(request: Request) {
         lastPage.drawImage(sigImage, {
           x: targetX,
           y: targetY,
-          width: 95,
-          height: 38,
+          width: 175,
+          height: 70,
         })
       } catch (e) {
         console.error('Failed to embed signature image:', e)
       }
     }
 
-    // 5. Date & Manager Remarks
-    const timestampStr = new Date().toLocaleString()
-    const commentText = managerNote ? `Note: ${managerNote}` : 'Authorized & Endorsed'
+    // 5. Stamp Label & Remarks (Only print if manager typed a note)
     const stampLabel = `[ ${stampType} ]`
-
     lastPage.drawText(stampLabel, {
       x: targetX,
-      y: targetY + 42,
-      size: 9,
-      color: rgb(0.1, 0.5, 0.2),
+      y: targetY + 75,
+      size: 11,
+      color: rgb(0.05, 0.45, 0.15),
     })
 
-    lastPage.drawText(commentText, {
-      x: targetX,
-      y: targetY - 10,
-      size: 8,
-      color: rgb(0.2, 0.2, 0.2),
-    })
-
-    if (settings?.include_datetime !== false) {
-      lastPage.drawText(`Date: ${timestampStr}`, {
+    if (managerNote && managerNote.trim().length > 0) {
+      lastPage.drawText(`Note: ${managerNote}`, {
         x: targetX,
-        y: targetY - 20,
-        size: 7,
-        color: rgb(0.4, 0.4, 0.4),
+        y: targetY - 14,
+        size: 9,
+        color: rgb(0.15, 0.15, 0.15),
       })
     }
 
-    // 6. Verification Code & QR
+    // 6. Date & Timestamp
+    const timestampStr = new Date().toLocaleString()
+    if (settings?.include_datetime !== false) {
+      const dtY = managerNote ? targetY - 26 : targetY - 14
+      lastPage.drawText(`Date: ${timestampStr}`, {
+        x: targetX,
+        y: dtY,
+        size: 8,
+        color: rgb(0.35, 0.35, 0.35),
+      })
+    }
+
+    // 7. QR Verification Code
     const verificationCode = `CEY-VIP-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
 
     if (settings?.include_qr !== false) {
@@ -112,30 +114,30 @@ export async function POST(request: Request) {
         const qrImage = await pdfDoc.embedPng(qrImageBytes)
 
         lastPage.drawImage(qrImage, {
-          x: targetX > width / 2 ? 40 : width - 80,
+          x: targetX > width / 2 ? 40 : width - 90,
           y: 40,
-          width: 45,
-          height: 45,
+          width: 55,
+          height: 55,
         })
 
         lastPage.drawText(`Code: ${verificationCode}`, {
-          x: targetX > width / 2 ? 40 : width - 80,
-          y: 30,
-          size: 6,
-          color: rgb(0.3, 0.3, 0.3),
+          x: targetX > width / 2 ? 40 : width - 90,
+          y: 28,
+          size: 7,
+          color: rgb(0.25, 0.25, 0.25),
         })
       } catch (qrErr) {
         console.error('QR generation error:', qrErr)
       }
     }
 
-    // 7. Watermark
+    // 8. Bottom Agency Watermark
     if (settings?.include_watermark !== false) {
       lastPage.drawText('Certified via Ceylinco VIP Approval Network • Powered by Ceylon Digi Solutions', {
         x: 40,
-        y: 15,
-        size: 6,
-        color: rgb(0.6, 0.6, 0.6),
+        y: 12,
+        size: 7,
+        color: rgb(0.55, 0.55, 0.55),
       })
     }
 
@@ -155,7 +157,7 @@ export async function POST(request: Request) {
       .update({
         status: 'approved',
         stamp_type: stampType,
-        manager_note: managerNote,
+        manager_note: managerNote || null,
         signed_file_url: signedPublicUrl,
         verification_code: verificationCode,
         updated_at: new Date().toISOString(),
