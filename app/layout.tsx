@@ -46,7 +46,11 @@ export default function RootLayout({
             __html: `
               if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').catch(function() {});
+                  navigator.serviceWorker.register('/sw.js').then(function(reg) {
+                    console.log('Ceylinco SW Active:', reg.scope);
+                  }).catch(function(err) {
+                    console.log('SW registration error:', err);
+                  });
                 });
               }
             `,
