@@ -38,7 +38,8 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
-  Move
+  Move,
+  Trash2
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { PDFDocument } from 'pdf-lib'
@@ -117,7 +118,6 @@ function DashboardContent() {
   const currentView = searchParams.get('view') || 'my-pending'
 
   const fetchDocuments = useCallback(async () => {
-    // Lean selective column query with limit for maximum performance
     const { data } = await supabase
       .from('documents')
       .select('id, title, file_url, signed_file_url, status, stamp_type, category, priority, verification_code, sender_note, manager_note, submitted_by, submitted_by_name, counter_name, created_at')
@@ -313,7 +313,20 @@ function DashboardContent() {
     }
   }
 
-  // Memoized search and tab filtering
+  // Admin Delete Function
+  const handleDeleteDocument = async (docId: string) => {
+    if (!window.confirm('Are you sure you want to permanently delete this document? This action cannot be undone.')) return
+    
+    try {
+      const { error } = await supabase.from('documents').delete().eq('id', docId)
+      if (error) throw error
+      setBannerMsg({ type: 'success', text: 'Document permanently deleted.' })
+      fetchDocuments()
+    } catch (err: any) {
+      setBannerMsg({ type: 'error', text: 'Delete failed: ' + err.message })
+    }
+  }
+
   const filteredSearchDocs = useMemo(() => {
     return documents.filter((doc) =>
       doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -440,6 +453,7 @@ function DashboardContent() {
             setSelectedDoc(doc)
             setActionDialogOpen(true)
           }}
+          onDeleteClick={handleDeleteDocument}
         />
       </div>
 
@@ -701,12 +715,15 @@ function DocumentTable({
   docs,
   profile,
   onActionClick,
+  onDeleteClick
 }: {
   docs: DocumentItem[]
   profile: Profile | null
   onActionClick: (doc: DocumentItem) => void
+  onDeleteClick: (docId: string) => void
 }) {
-  const isPrivileged = profile?.role === 'manager' || profile?.role === 'admin'
+  const isManager = profile?.role === 'manager'
+  const isAdmin = profile?.role === 'admin'
 
   if (docs.length === 0) {
     return (
@@ -786,7 +803,7 @@ function DocumentTable({
               </TableCell>
 
               <TableCell className="text-right space-x-1.5">
-                {isPrivileged && doc.status === 'pending' && (
+                {(isManager || isAdmin) && doc.status === 'pending' && (
                   <Button
                     size="sm"
                     onClick={() => onActionClick(doc)}
@@ -814,9 +831,22 @@ function DocumentTable({
                       download
                       className="inline-flex items-center px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-medium"
                     >
-                      <Download className="w-3.5 h-3.5 mr-1" /> PDF
+                      <Download className="w-3 h-3 mr-1" /> PDF
                     </a>
                   </div>
+                )}
+                
+                {/* Admin Delete Action */}
+                {isAdmin && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onDeleteClick(doc.id)}
+                    className="border-rose-800 bg-rose-950/30 text-rose-400 hover:bg-rose-900/50 hover:text-rose-300 px-2 text-[11px] h-7 ml-1"
+                    title="Permanent Delete"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
                 )}
               </TableCell>
             </TableRow>
