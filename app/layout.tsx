@@ -31,7 +31,7 @@ export const metadata: Metadata = {
     title: 'Ceylinco VIP',
   },
   icons: {
-    icon: '/icon-192.png',
+    icon: '/icon-192.svg',
     apple: '/icon-192.png',
   },
 }
@@ -55,6 +55,17 @@ export default function RootLayout({
       </head>
       <body className="h-full bg-slate-950 text-slate-100 font-sans" suppressHydrationWarning>
         {children}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js');
+                });
+              }
+            `,
+          }}
+        />
       </body>
     </html>
   )

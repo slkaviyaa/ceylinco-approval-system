@@ -143,7 +143,24 @@ export default function DashboardPage() {
   const isPrivileged = profile?.role === 'manager' || profile?.role === 'admin'
 
   useEffect(() => {
-    fetchInitialData()
+    let isMounted = true
+
+    // Safety Fallback Timer (3 seconds max load)
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) {
+        setLoading(false)
+      }
+    }, 3000)
+
+    const init = async () => {
+      await fetchInitialData()
+      if (isMounted) {
+        clearTimeout(safetyTimer)
+        setLoading(false)
+      }
+    }
+
+    init()
 
     const channel = supabase
       .channel('realtime_documents')
@@ -157,48 +174,51 @@ export default function DashboardPage() {
       .subscribe()
 
     return () => {
+      isMounted = false
+      clearTimeout(safetyTimer)
       supabase.removeChannel(channel)
     }
   }, [])
 
   const fetchInitialData = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
 
-      if (!session || !session.user) {
-        router.push('/login')
-        return
+      if (userError || !user) {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.user) {
+          router.push('/login')
+          return
+        }
       }
 
-      const user = session.user
+      const activeUser = user || (await supabase.auth.getSession()).data.session?.user
 
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle()
+      if (activeUser) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', activeUser.id)
+          .maybeSingle()
 
-      if (profileData) {
-        setProfile(profileData)
-      } else {
-        // Fallback default profile from session metadata
-        setProfile({
-          id: user.id,
-          email: user.email || '',
-          username: user.user_metadata?.username || null,
-          full_name: user.user_metadata?.full_name || 'Ceylinco Officer',
-          role: user.user_metadata?.role || 'counter',
-          counter_name: user.user_metadata?.counter_name || 'Dehiattakandiya_Main',
-          signature_url: null,
-        })
+        if (profileData) {
+          setProfile(profileData)
+        } else {
+          setProfile({
+            id: activeUser.id,
+            email: activeUser.email || '',
+            username: activeUser.user_metadata?.username || null,
+            full_name: activeUser.user_metadata?.full_name || 'Ceylinco Officer',
+            role: activeUser.user_metadata?.role || 'counter',
+            counter_name: activeUser.user_metadata?.counter_name || 'Dehiattakandiya_Main',
+            signature_url: null,
+          })
+        }
       }
 
       await fetchDocuments()
     } catch (err) {
-      console.error('Error fetching data:', err)
-      router.push('/login')
-    } finally {
-      setLoading(false)
+      console.error('Initialization fallback triggered:', err)
     }
   }
 
@@ -213,7 +233,7 @@ export default function DashboardPage() {
         setDocuments(data as DocumentItem[])
       }
     } catch (e) {
-      console.error('Docs error:', e)
+      console.error('Docs fetch error:', e)
     }
   }
 
