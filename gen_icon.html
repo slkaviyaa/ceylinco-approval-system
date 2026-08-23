@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html><body>
+<canvas id="c" width="512" height="512"></canvas>
+<script>
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+ctx.fillStyle = '#0f172a';
+ctx.fillRect(0, 0, 512, 512);
+
+// Inner blue badge
+ctx.fillStyle = '#2563eb';
+ctx.beginPath();
+ctx.roundRect(40, 40, 432, 432, [80]);
+ctx.fill();
+
+// Text
+ctx.fillStyle = '#ffffff';
+ctx.font = 'bold 64px Arial';
+ctx.textAlign = 'center';
+ctx.fillText('CEYLINCO', 256, 240);
+
+ctx.fillStyle = '#93c5fd';
+ctx.font = 'bold 36px Arial';
+ctx.fillText('VIP APPROVAL', 256, 300);
+
+const dataUrl = c.toDataURL('image/png');
+console.log(dataUrl);
+</script></body></html>

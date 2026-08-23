@@ -145,7 +145,6 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchInitialData()
 
-    // Setup Supabase Realtime Subscription
     const channel = supabase
       .channel('realtime_documents')
       .on(
@@ -163,36 +162,58 @@ export default function DashboardPage() {
   }, [])
 
   const fetchInitialData = async () => {
-    setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
 
-    if (!user) {
+      if (!session || !session.user) {
+        router.push('/login')
+        return
+      }
+
+      const user = session.user
+
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (profileData) {
+        setProfile(profileData)
+      } else {
+        // Fallback default profile from session metadata
+        setProfile({
+          id: user.id,
+          email: user.email || '',
+          username: user.user_metadata?.username || null,
+          full_name: user.user_metadata?.full_name || 'Ceylinco Officer',
+          role: user.user_metadata?.role || 'counter',
+          counter_name: user.user_metadata?.counter_name || 'Dehiattakandiya_Main',
+          signature_url: null,
+        })
+      }
+
+      await fetchDocuments()
+    } catch (err) {
+      console.error('Error fetching data:', err)
       router.push('/login')
-      return
+    } finally {
+      setLoading(false)
     }
-
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single()
-
-    if (profileData) {
-      setProfile(profileData)
-    }
-
-    fetchDocuments()
-    setLoading(false)
   }
 
   const fetchDocuments = async () => {
-    const { data, error } = await supabase
-      .from('documents')
-      .select('*')
-      .order('created_at', { ascending: false })
+    try {
+      const { data, error } = await supabase
+        .from('documents')
+        .select('*')
+        .order('created_at', { ascending: false })
 
-    if (data && !error) {
-      setDocuments(data as DocumentItem[])
+      if (data && !error) {
+        setDocuments(data as DocumentItem[])
+      }
+    } catch (e) {
+      console.error('Docs error:', e)
     }
   }
 
@@ -463,7 +484,6 @@ export default function DashboardPage() {
     }
   }
 
-  // Export Filtered Table to Excel
   const exportToExcel = () => {
     const dataToExport = filteredDocs.map((d) => ({
       Title: d.title,
@@ -493,7 +513,6 @@ export default function DashboardPage() {
     )
   }
 
-  // Filter pipeline
   const filteredDocs = documents.filter((doc) => {
     const matchesSearch =
       doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -522,7 +541,6 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Top Navbar */}
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -578,9 +596,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* Quick Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
           <Card className="bg-slate-900 border-slate-800 shadow-md">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -616,7 +632,6 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Action Header & Search Filter Bar */}
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
@@ -658,7 +673,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Search and Filters Bar */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-900/90 p-3 rounded-lg border border-slate-800">
             <div className="relative">
               <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
@@ -702,7 +716,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Document Tabs */}
         <Tabs defaultValue="all" className="space-y-4">
           <TabsList className="bg-slate-900 border border-slate-800 text-slate-400 p-1">
             <TabsTrigger value="all">All Documents ({filteredDocs.length})</TabsTrigger>
@@ -754,7 +767,6 @@ export default function DashboardPage() {
         </Tabs>
       </main>
 
-      {/* Official Developer Branding Footer */}
       <footer className="border-t border-slate-900 bg-slate-950/80 py-6 text-center text-xs text-slate-500 space-y-1">
         <div className="flex items-center justify-center gap-1.5 font-medium text-slate-400">
           <Code2 className="w-4 h-4 text-blue-500" />
@@ -826,7 +838,6 @@ export default function DashboardPage() {
               />
             </div>
 
-            {/* Document Capture & Multi-Page Section */}
             <div className="space-y-2 border-t border-slate-800 pt-3">
               <Label className="text-slate-200 text-xs">Attach Document</Label>
 
@@ -871,7 +882,6 @@ export default function DashboardPage() {
                 }}
               />
 
-              {/* Scanned Pages Gallery */}
               {scannedPages.length > 0 && (
                 <div className="space-y-2 p-3 bg-slate-950 rounded border border-slate-800">
                   <div className="flex justify-between items-center text-xs text-slate-300">
@@ -1345,7 +1355,7 @@ function DocumentTable({
                       download
                       className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded bg-emerald-600 hover:bg-emerald-500 text-white transition shadow"
                     >
-                      <Download className="w-3 h-3 mr-1" />
+                      <Download className="w-3.5 h-3.5 mr-1" />
                       PDF
                     </a>
                   </div>

@@ -31,7 +31,8 @@ export const metadata: Metadata = {
     title: 'Ceylinco VIP',
   },
   icons: {
-    apple: '/icon-192.svg',
+    icon: '/icon-192.png',
+    apple: '/icon-192.png',
   },
 }
 
@@ -49,21 +50,11 @@ export default function RootLayout({
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <link rel="apple-touch-icon" href="/icon-192.svg" />
+        <meta name="apple-mobile-web-app-title" content="Ceylinco VIP" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
       <body className="h-full bg-slate-950 text-slate-100 font-sans" suppressHydrationWarning>
         {children}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js');
-                });
-              }
-            `,
-          }}
-        />
       </body>
     </html>
   )
