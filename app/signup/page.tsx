@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ShieldCheck, Loader2, KeyRound } from 'lucide-react'
 
-// Authorized Secret Code for Branch Registration
 const AUTHORIZED_SECRET_CODE = 'CEY2026CDS'
 
 export default function SignUpPage() {
@@ -32,14 +31,12 @@ export default function SignUpPage() {
     setErrorMsg('')
     setSuccessMsg('')
 
-    // 1. Verify Secret Code
     if (secretCode.trim() !== AUTHORIZED_SECRET_CODE) {
       setErrorMsg('Invalid Branch Security Authorization Code. Access Denied.')
       setLoading(false)
       return
     }
 
-    // 2. Validate Password Length
     if (password.length < 6) {
       setErrorMsg('Password must be at least 6 characters.')
       setLoading(false)
@@ -47,27 +44,36 @@ export default function SignUpPage() {
     }
 
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-            role: role,
-            counter_name: 'Dehiattakandiya_Main',
-          },
-        },
+      // Direct Admin API Call to Bypass Supabase Email Rate Limits & Auto-Confirm
+      const res = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: fullName,
+          email: email.trim().toLowerCase(),
+          username: email.trim().toLowerCase().split('@')[0],
+          password: password,
+          role: role,
+          counter_name: 'Dehiattakandiya_Main',
+        }),
       })
 
-      if (error) throw error
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to create administrative account.')
 
-      if (data.user) {
-        setSuccessMsg(`Account created successfully as ${role === 'manager' ? 'Branch Manager' : 'System Administrator'}! Redirecting to Dashboard...`)
-        setTimeout(() => {
-          router.push('/dashboard')
-          router.refresh()
-        }, 1500)
-      }
+      // Auto sign-in immediately
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password: password,
+      })
+
+      if (signInError) throw signInError
+
+      setSuccessMsg(`Account created successfully as ${role === 'manager' ? 'Branch Manager' : 'System Administrator'}! Redirecting...`)
+      setTimeout(() => {
+        router.push('/dashboard')
+        router.refresh()
+      }, 1200)
     } catch (error: any) {
       setErrorMsg(error.message || 'Signup failed. Please try again.')
     } finally {
@@ -107,7 +113,7 @@ export default function SignUpPage() {
               <Input
                 id="fullName"
                 type="text"
-                placeholder="e.g. Branch Executive / Officer"
+                placeholder="e.g. Munesh Danushka"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 required
@@ -120,7 +126,7 @@ export default function SignUpPage() {
               <Input
                 id="email"
                 type="email"
-                placeholder="officer@ceylincoinsurance.com"
+                placeholder="danushka.ceylincovip@gmail.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
