@@ -53,6 +53,7 @@ export async function POST(req: Request) {
 
     const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
     const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica)
+    const helveticaOblique = await pdfDoc.embedFont(StandardFonts.HelveticaOblique)
 
     // Generate Verification QR Code
     const origin = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
@@ -61,19 +62,20 @@ export async function POST(req: Request) {
     const qrImageBytes = Buffer.from(qrDataUrl.split(',')[1], 'base64')
     const qrPdfImage = await pdfDoc.embedPng(qrImageBytes)
 
-    const boxWidth = 260
-    const boxHeight = 110
+    const boxWidth = 270
+    const boxHeight = 118
     const margin = 20
     const boxX = width - boxWidth - margin
     const boxY = margin
 
+    // Container box
     lastPage.drawRectangle({
       x: boxX,
       y: boxY,
       width: boxWidth,
       height: boxHeight,
       color: rgb(0.97, 0.98, 1.0),
-      borderColor: rgb(0.15, 0.35, 0.75),
+      borderColor: rgb(0.12, 0.35, 0.8),
       borderWidth: 1.5,
     })
 
@@ -118,7 +120,7 @@ export async function POST(req: Request) {
       minute: '2-digit',
     })
 
-    lastPage.drawText(`Branch: Dehiattakandiya`, {
+    lastPage.drawText(`Branch: Dehiattakandiya Main`, {
       x: boxX + 10,
       y: boxY + boxHeight - 38,
       size: 7,
@@ -145,10 +147,19 @@ export async function POST(req: Request) {
     const noteText = managerNote ? `Note: ${managerNote.slice(0, 30)}` : 'Document Processed'
     lastPage.drawText(noteText, {
       x: boxX + 10,
-      y: boxY + 10,
+      y: boxY + 18,
       size: 6.5,
       font: helvetica,
       color: rgb(0.3, 0.3, 0.3),
+    })
+
+    // Official Developer Micro Credits on Stamp Bottom
+    lastPage.drawText('Engineered by Ceylon Digi Solutions (Founder: Kavindu Dilhara)', {
+      x: boxX + 10,
+      y: boxY + 6,
+      size: 5.5,
+      font: helveticaOblique,
+      color: rgb(0.45, 0.5, 0.6),
     })
 
     // Draw Signature Image
@@ -162,8 +173,8 @@ export async function POST(req: Request) {
             : await pdfDoc.embedJpg(sigBytes)
 
           lastPage.drawImage(sigImg, {
-            x: boxX + 125,
-            y: boxY + 38,
+            x: boxX + 130,
+            y: boxY + 42,
             width: 65,
             height: 32,
           })
@@ -176,9 +187,9 @@ export async function POST(req: Request) {
     // Draw QR Code
     lastPage.drawImage(qrPdfImage, {
       x: boxX + boxWidth - 62,
-      y: boxY + 12,
-      width: 54,
-      height: 54,
+      y: boxY + 22,
+      width: 52,
+      height: 52,
     })
 
     const modifiedPdfBytes = await pdfDoc.save()

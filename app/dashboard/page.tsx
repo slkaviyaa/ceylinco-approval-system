@@ -44,10 +44,9 @@ import {
   Check,
   Search,
   FileSpreadsheet,
-  AlertCircle,
-  PlusCircle,
   Trash2,
-  QrCode
+  QrCode,
+  Code2
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { PDFDocument } from 'pdf-lib'
@@ -146,13 +145,13 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchInitialData()
 
-    // Setup Supabase Realtime Subscription for Live Approvals
+    // Setup Supabase Realtime Subscription
     const channel = supabase
       .channel('realtime_documents')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'documents' },
-        (payload) => {
+        () => {
           fetchDocuments()
         }
       )
@@ -754,6 +753,17 @@ export default function DashboardPage() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Official Developer Branding Footer */}
+      <footer className="border-t border-slate-900 bg-slate-950/80 py-6 text-center text-xs text-slate-500 space-y-1">
+        <div className="flex items-center justify-center gap-1.5 font-medium text-slate-400">
+          <Code2 className="w-4 h-4 text-blue-500" />
+          <span>Designed & Developed by <strong className="text-blue-400 font-semibold">Ceylon Digi Solutions</strong></span>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          System Architecture & Engineering by <strong className="text-slate-300">Kavindu Dilhara</strong> (Founder, Ceylon Digi Solutions) • All Rights Reserved
+        </p>
+      </footer>
 
       {/* Upload Document Modal with Multi-Page Scanner */}
       <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
