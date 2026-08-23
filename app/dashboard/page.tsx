@@ -82,7 +82,6 @@ interface DocumentItem {
 export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [documents, setDocuments] = useState<DocumentItem[]>([])
-  const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   
   // Search & Filter state
@@ -143,7 +142,6 @@ export default function DashboardPage() {
   const isPrivileged = profile?.role === 'manager' || profile?.role === 'admin'
 
   useEffect(() => {
-    // 1. Immediate Session Check
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
         window.location.href = '/login'
@@ -152,7 +150,6 @@ export default function DashboardPage() {
       loadUserData(session.user)
     })
 
-    // 2. Auth State Listener
     const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (session?.user) {
@@ -165,7 +162,6 @@ export default function DashboardPage() {
 
     fetchDocuments()
 
-    // 3. Realtime Subscription
     const channel = supabase
       .channel('realtime_documents')
       .on(
@@ -205,7 +201,7 @@ export default function DashboardPage() {
         })
       }
     } catch (e) {
-      console.error('Profile fetch error:', e)
+      console.error('Profile error:', e)
     }
   }
 
@@ -220,7 +216,7 @@ export default function DashboardPage() {
         setDocuments(data as DocumentItem[])
       }
     } catch (e) {
-      console.error('Docs fetch error:', e)
+      console.error('Docs error:', e)
     }
   }
 
@@ -229,7 +225,6 @@ export default function DashboardPage() {
     window.location.href = '/login'
   }
 
-  // Multi-page batch camera scanner
   const handlePageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -538,7 +533,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-40">
+      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-md">
@@ -554,7 +549,7 @@ export default function DashboardPage() {
 
           <div className="flex items-center space-x-2 sm:space-x-3">
             <div className="text-right hidden sm:block">
-              <div className="text-sm font-semibold text-white">{profile?.full_name || 'Loading...'}</div>
+              <div className="text-sm font-semibold text-white">{profile?.full_name || 'Ceylinco User'}</div>
               <div className="text-xs text-blue-400 font-medium">{getRoleLabel()}</div>
             </div>
 
@@ -775,441 +770,451 @@ export default function DashboardPage() {
       </footer>
 
       {/* Upload Document Modal */}
-      <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-white text-lg">Submit Document for Signature</DialogTitle>
-            <DialogDescription className="text-slate-400 text-xs">
-              Upload existing PDF or capture multiple pages using Camera.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleUploadDocument} className="space-y-4 mt-2">
-            <div className="space-y-1">
-              <Label className="text-slate-200 text-xs">Document Title / Policy Number</Label>
-              <Input
-                placeholder="e.g., VIP Claim #8921 Endorsement"
-                value={docTitle}
-                onChange={(e) => setDocTitle(e.target.value)}
-                required
-                className="bg-slate-950 border-slate-700 text-white text-xs h-9"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
+      {uploadDialogOpen && (
+        <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+          <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-white text-lg">Submit Document for Signature</DialogTitle>
+              <DialogDescription className="text-slate-400 text-xs">
+                Upload existing PDF or capture multiple pages using Camera.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleUploadDocument} className="space-y-4 mt-2">
               <div className="space-y-1">
-                <Label className="text-slate-200 text-xs">Document Category</Label>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="w-full h-9 px-3 rounded bg-slate-950 border border-slate-700 text-white text-xs"
-                >
-                  <option value="Motor Claim">Motor Claim</option>
-                  <option value="Policy Endorsement">Policy Endorsement</option>
-                  <option value="Life Proposal">Life Proposal</option>
-                  <option value="Policy Cancellation">Policy Cancellation</option>
-                  <option value="Underwriting Approval">Underwriting Approval</option>
-                  <option value="General Request">General Request</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-slate-200 text-xs">Priority</Label>
-                <select
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value as any)}
-                  className="w-full h-9 px-3 rounded bg-slate-950 border border-slate-700 text-white text-xs"
-                >
-                  <option value="Normal">Normal</option>
-                  <option value="Urgent">Urgent Priority 🔥</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-slate-200 text-xs">Sender Note (Optional)</Label>
-              <Input
-                placeholder="e.g., Customer requested urgent same-day clearance"
-                value={senderNote}
-                onChange={(e) => setSenderNote(e.target.value)}
-                className="bg-slate-950 border-slate-700 text-white text-xs h-9"
-              />
-            </div>
-
-            <div className="space-y-2 border-t border-slate-800 pt-3">
-              <Label className="text-slate-200 text-xs">Attach Document</Label>
-
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => cameraInputRef.current?.click()}
-                  className="border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800 text-xs flex items-center justify-center gap-1.5 h-10"
-                >
-                  <Camera className="w-4 h-4 text-blue-400" />
-                  Take Page Photo
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800 text-xs flex items-center justify-center gap-1.5 h-10"
-                >
-                  <FileText className="w-4 h-4 text-emerald-400" />
-                  Browse Single PDF
-                </Button>
-              </div>
-
-              <input
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={handlePageCapture}
-              />
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/pdf"
-                className="hidden"
-                onChange={(e) => {
-                  setSelectedFile(e.target.files?.[0] || null)
-                  setScannedPages([])
-                }}
-              />
-
-              {scannedPages.length > 0 && (
-                <div className="space-y-2 p-3 bg-slate-950 rounded border border-slate-800">
-                  <div className="flex justify-between items-center text-xs text-slate-300">
-                    <span>Captured Pages ({scannedPages.length})</span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={buildMultiPagePdf}
-                      disabled={isProcessingPdf}
-                      className="h-7 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px]"
-                    >
-                      {isProcessingPdf ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
-                      Compile into 1 PDF
-                    </Button>
-                  </div>
-                  <div className="flex gap-2 overflow-x-auto py-1">
-                    {scannedPages.map((page, idx) => (
-                      <div key={page.id} className="relative w-16 h-20 bg-slate-900 rounded border border-slate-700 shrink-0 overflow-hidden group">
-                        <img src={page.preview} alt={`Page ${idx + 1}`} className="w-full h-full object-cover" />
-                        <span className="absolute bottom-0 left-0 bg-black/70 text-[9px] text-white px-1">P.{idx + 1}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeScannedPage(page.id)}
-                          className="absolute top-1 right-1 bg-rose-600 text-white rounded p-0.5 opacity-0 group-hover:opacity-100 transition"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {selectedFile && (
-                <div className="p-2.5 rounded bg-blue-950/40 border border-blue-800 text-xs text-blue-300 flex items-center justify-between mt-2">
-                  <span className="truncate">Attached: {selectedFile.name}</span>
-                  <Badge className="bg-emerald-600 text-white text-[10px]">PDF Ready</Badge>
-                </div>
-              )}
-            </div>
-
-            <DialogFooter className="pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setUploadDialogOpen(false)}
-                className="border-slate-700 text-slate-300 text-xs"
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={uploading || !selectedFile} className="bg-blue-600 hover:bg-blue-500 text-white text-xs">
-                {uploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <UploadCloud className="w-4 h-4 mr-2" />}
-                Upload & Submit
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Review Modal */}
-      <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="text-white text-lg">Document Endorsement & Processing</DialogTitle>
-            <DialogDescription className="text-slate-400 text-xs">
-              {selectedDoc?.title} ({selectedDoc?.counter_name} Counter)
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 my-2">
-            <div className="p-3 bg-slate-950 rounded border border-slate-800 text-xs space-y-1">
-              <p className="text-slate-400">
-                <span className="font-semibold text-slate-300">Submitted By:</span> {selectedDoc?.submitted_by_name}
-              </p>
-              <p className="text-slate-400">
-                <span className="font-semibold text-slate-300">Category:</span> {selectedDoc?.category} |{' '}
-                <span className="font-semibold text-slate-300">Priority:</span>{' '}
-                <span className={selectedDoc?.priority === 'Urgent' ? 'text-rose-400 font-bold' : 'text-slate-300'}>
-                  {selectedDoc?.priority}
-                </span>
-              </p>
-              {selectedDoc?.sender_note && (
-                <p className="text-slate-400">
-                  <span className="font-semibold text-slate-300">Counter Note:</span> {selectedDoc.sender_note}
-                </p>
-              )}
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <a
-                href={selectedDoc?.file_url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center text-xs text-blue-400 hover:underline"
-              >
-                <FileText className="w-3.5 h-3.5 mr-1" /> View Original Document (PDF)
-              </a>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-slate-200 text-xs">Endorsement Stamp Type</Label>
-              <select
-                value={stampType}
-                onChange={(e) => setStampType(e.target.value)}
-                className="w-full h-9 px-3 rounded bg-slate-950 border border-slate-700 text-white text-xs"
-              >
-                <option value="APPROVED">APPROVED & AUTHORIZED</option>
-                <option value="RECOMMENDED">RECOMMENDED</option>
-                <option value="VERIFIED">VERIFIED & CERTIFIED</option>
-                <option value="SIGN_ONLY">SIGNATURE & OFFICIAL SEAL ONLY</option>
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="mgrNote" className="text-slate-200 text-xs">Manager Remarks / Note</Label>
-              <Input
-                id="mgrNote"
-                placeholder="e.g., Verified as per guidelines"
-                value={managerNote}
-                onChange={(e) => setManagerNote(e.target.value)}
-                className="bg-slate-950 border-slate-700 text-white text-xs h-9"
-              />
-            </div>
-          </div>
-          <DialogFooter className="flex flex-row justify-end space-x-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={actionLoading}
-              onClick={() => handleManagerDecision('rejected')}
-              className="border-rose-800 text-rose-400 hover:bg-rose-950 text-xs"
-            >
-              <XCircle className="w-3.5 h-3.5 mr-1.5" />
-              Reject
-            </Button>
-            <Button
-              type="button"
-              disabled={actionLoading}
-              onClick={() => handleManagerDecision('approved')}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
-            >
-              {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <PenTool className="w-3.5 h-3.5 mr-1.5" />}
-              Apply Stamp & Sign
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Signature Modal */}
-      <Dialog open={sigDialogOpen} onOpenChange={setSigDialogOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-white text-lg">Manager Digital Signature</DialogTitle>
-            <DialogDescription className="text-slate-400 text-xs">
-              Upload transparent PNG/JPG to auto-stamp on certified documents.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSignatureUpload} className="space-y-4 mt-2">
-            {profile?.signature_url && (
-              <div className="p-3 bg-slate-950 rounded border border-slate-800 text-center">
-                <p className="text-xs text-slate-400 mb-2">Current Active Signature:</p>
-                <img
-                  src={profile.signature_url}
-                  alt="Manager Signature"
-                  className="h-16 mx-auto bg-white/90 p-1 rounded"
+                <Label className="text-slate-200 text-xs">Document Title / Policy Number</Label>
+                <Input
+                  placeholder="e.g., VIP Claim #8921 Endorsement"
+                  value={docTitle}
+                  onChange={(e) => setDocTitle(e.target.value)}
+                  required
+                  className="bg-slate-950 border-slate-700 text-white text-xs h-9"
                 />
               </div>
-            )}
-            <div className="space-y-1">
-              <Label className="text-slate-200 text-xs">Select Signature Image</Label>
-              <Input
-                type="file"
-                accept="image/png, image/jpeg"
-                onChange={(e) => setSigFile(e.target.files?.[0] || null)}
-                required
-                className="bg-slate-950 border-slate-700 text-white text-xs h-9"
-              />
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-slate-200 text-xs">Document Category</Label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="w-full h-9 px-3 rounded bg-slate-950 border border-slate-700 text-white text-xs"
+                  >
+                    <option value="Motor Claim">Motor Claim</option>
+                    <option value="Policy Endorsement">Policy Endorsement</option>
+                    <option value="Life Proposal">Life Proposal</option>
+                    <option value="Policy Cancellation">Policy Cancellation</option>
+                    <option value="Underwriting Approval">Underwriting Approval</option>
+                    <option value="General Request">General Request</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-slate-200 text-xs">Priority</Label>
+                  <select
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value as any)}
+                    className="w-full h-9 px-3 rounded bg-slate-950 border border-slate-700 text-white text-xs"
+                  >
+                    <option value="Normal">Normal</option>
+                    <option value="Urgent">Urgent Priority 🔥</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-slate-200 text-xs">Sender Note (Optional)</Label>
+                <Input
+                  placeholder="e.g., Customer requested urgent same-day clearance"
+                  value={senderNote}
+                  onChange={(e) => setSenderNote(e.target.value)}
+                  className="bg-slate-950 border-slate-700 text-white text-xs h-9"
+                />
+              </div>
+
+              <div className="space-y-2 border-t border-slate-800 pt-3">
+                <Label className="text-slate-200 text-xs">Attach Document</Label>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800 text-xs flex items-center justify-center gap-1.5 h-10"
+                  >
+                    <Camera className="w-4 h-4 text-blue-400" />
+                    Take Page Photo
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800 text-xs flex items-center justify-center gap-1.5 h-10"
+                  >
+                    <FileText className="w-4 h-4 text-emerald-400" />
+                    Browse Single PDF
+                  </Button>
+                </div>
+
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handlePageCapture}
+                />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    setSelectedFile(e.target.files?.[0] || null)
+                    setScannedPages([])
+                  }}
+                />
+
+                {scannedPages.length > 0 && (
+                  <div className="space-y-2 p-3 bg-slate-950 rounded border border-slate-800">
+                    <div className="flex justify-between items-center text-xs text-slate-300">
+                      <span>Captured Pages ({scannedPages.length})</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={buildMultiPagePdf}
+                        disabled={isProcessingPdf}
+                        className="h-7 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px]"
+                      >
+                        {isProcessingPdf ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
+                        Compile into 1 PDF
+                      </Button>
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto py-1">
+                      {scannedPages.map((page, idx) => (
+                        <div key={page.id} className="relative w-16 h-20 bg-slate-900 rounded border border-slate-700 shrink-0 overflow-hidden group">
+                          <img src={page.preview} alt={`Page ${idx + 1}`} className="w-full h-full object-cover" />
+                          <span className="absolute bottom-0 left-0 bg-black/70 text-[9px] text-white px-1">P.{idx + 1}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeScannedPage(page.id)}
+                            className="absolute top-1 right-1 bg-rose-600 text-white rounded p-0.5 opacity-0 group-hover:opacity-100 transition"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedFile && (
+                  <div className="p-2.5 rounded bg-blue-950/40 border border-blue-800 text-xs text-blue-300 flex items-center justify-between mt-2">
+                    <span className="truncate">Attached: {selectedFile.name}</span>
+                    <Badge className="bg-emerald-600 text-white text-[10px]">PDF Ready</Badge>
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setUploadDialogOpen(false)}
+                  className="border-slate-700 text-slate-300 text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={uploading || !selectedFile} className="bg-blue-600 hover:bg-blue-500 text-white text-xs">
+                  {uploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <UploadCloud className="w-4 h-4 mr-2" />}
+                  Upload & Submit
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Review Modal */}
+      {actionDialogOpen && (
+        <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
+          <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="text-white text-lg">Document Endorsement & Processing</DialogTitle>
+              <DialogDescription className="text-slate-400 text-xs">
+                {selectedDoc?.title} ({selectedDoc?.counter_name} Counter)
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 my-2">
+              <div className="p-3 bg-slate-950 rounded border border-slate-800 text-xs space-y-1">
+                <p className="text-slate-400">
+                  <span className="font-semibold text-slate-300">Submitted By:</span> {selectedDoc?.submitted_by_name}
+                </p>
+                <p className="text-slate-400">
+                  <span className="font-semibold text-slate-300">Category:</span> {selectedDoc?.category} |{' '}
+                  <span className="font-semibold text-slate-300">Priority:</span>{' '}
+                  <span className={selectedDoc?.priority === 'Urgent' ? 'text-rose-400 font-bold' : 'text-slate-300'}>
+                    {selectedDoc?.priority}
+                  </span>
+                </p>
+                {selectedDoc?.sender_note && (
+                  <p className="text-slate-400">
+                    <span className="font-semibold text-slate-300">Counter Note:</span> {selectedDoc.sender_note}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <a
+                  href={selectedDoc?.file_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center text-xs text-blue-400 hover:underline"
+                >
+                  <FileText className="w-3.5 h-3.5 mr-1" /> View Original Document (PDF)
+                </a>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-slate-200 text-xs">Endorsement Stamp Type</Label>
+                <select
+                  value={stampType}
+                  onChange={(e) => setStampType(e.target.value)}
+                  className="w-full h-9 px-3 rounded bg-slate-950 border border-slate-700 text-white text-xs"
+                >
+                  <option value="APPROVED">APPROVED & AUTHORIZED</option>
+                  <option value="RECOMMENDED">RECOMMENDED</option>
+                  <option value="VERIFIED">VERIFIED & CERTIFIED</option>
+                  <option value="SIGN_ONLY">SIGNATURE & OFFICIAL SEAL ONLY</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="mgrNote" className="text-slate-200 text-xs">Manager Remarks / Note</Label>
+                <Input
+                  id="mgrNote"
+                  placeholder="e.g., Verified as per guidelines"
+                  value={managerNote}
+                  onChange={(e) => setManagerNote(e.target.value)}
+                  className="bg-slate-950 border-slate-700 text-white text-xs h-9"
+                />
+              </div>
             </div>
-            <DialogFooter className="pt-2">
+            <DialogFooter className="flex flex-row justify-end space-x-2 pt-2">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setSigDialogOpen(false)}
-                className="border-slate-700 text-slate-300 text-xs"
+                disabled={actionLoading}
+                onClick={() => handleManagerDecision('rejected')}
+                className="border-rose-800 text-rose-400 hover:bg-rose-950 text-xs"
               >
-                Cancel
+                <XCircle className="w-3.5 h-3.5 mr-1.5" />
+                Reject
               </Button>
-              <Button type="submit" disabled={sigUploading} className="bg-blue-600 hover:bg-blue-500 text-white text-xs">
-                {sigUploading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Check className="w-3.5 h-3.5 mr-1.5" />}
-                Save Signature
+              <Button
+                type="button"
+                disabled={actionLoading}
+                onClick={() => handleManagerDecision('approved')}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
+              >
+                {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <PenTool className="w-3.5 h-3.5 mr-1.5" />}
+                Apply Stamp & Sign
               </Button>
             </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Signature Modal */}
+      {sigDialogOpen && (
+        <Dialog open={sigDialogOpen} onOpenChange={setSigDialogOpen}>
+          <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-white text-lg">Manager Digital Signature</DialogTitle>
+              <DialogDescription className="text-slate-400 text-xs">
+                Upload transparent PNG/JPG to auto-stamp on certified documents.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleSignatureUpload} className="space-y-4 mt-2">
+              {profile?.signature_url && (
+                <div className="p-3 bg-slate-950 rounded border border-slate-800 text-center">
+                  <p className="text-xs text-slate-400 mb-2">Current Active Signature:</p>
+                  <img
+                    src={profile.signature_url}
+                    alt="Manager Signature"
+                    className="h-16 mx-auto bg-white/90 p-1 rounded"
+                  />
+                </div>
+              )}
+              <div className="space-y-1">
+                <Label className="text-slate-200 text-xs">Select Signature Image</Label>
+                <Input
+                  type="file"
+                  accept="image/png, image/jpeg"
+                  onChange={(e) => setSigFile(e.target.files?.[0] || null)}
+                  required
+                  className="bg-slate-950 border-slate-700 text-white text-xs h-9"
+                />
+              </div>
+              <DialogFooter className="pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setSigDialogOpen(false)}
+                  className="border-slate-700 text-slate-300 text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={sigUploading} className="bg-blue-600 hover:bg-blue-500 text-white text-xs">
+                  {sigUploading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Check className="w-3.5 h-3.5 mr-1.5" />}
+                  Save Signature
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Admin User Creator Modal */}
-      <Dialog open={createUserOpen} onOpenChange={setCreateUserOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-white text-lg">Create Counter / Staff Account</DialogTitle>
-            <DialogDescription className="text-slate-400 text-xs">
-              Create an account with simple Username & Default Password.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleCreateNewUser} className="space-y-3 mt-2">
-            {userErrorMsg && <div className="p-2 text-xs rounded bg-red-950 border border-red-800 text-red-400">{userErrorMsg}</div>}
-            {userSuccessMsg && <div className="p-2 text-xs rounded bg-emerald-950 border border-emerald-800 text-emerald-400">{userSuccessMsg}</div>}
-            <div className="space-y-1">
-              <Label className="text-slate-200 text-xs">Officer / Display Name</Label>
-              <Input
-                placeholder="e.g. Mahaoya Counter Officer"
-                value={newUserFullName}
-                onChange={(e) => setNewUserFullName(e.target.value)}
-                required
-                className="bg-slate-950 border-slate-700 text-white text-xs h-9"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-slate-200 text-xs">Login Username</Label>
-              <Input
-                placeholder="e.g. mahaoya / siripura / aralaganwila"
-                value={newUserUsername}
-                onChange={(e) => setNewUserUsername(e.target.value)}
-                required
-                className="bg-slate-950 border-slate-700 text-white font-mono text-xs h-9"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-slate-200 text-xs">Account Role</Label>
-              <select
-                value={newUserRole}
-                onChange={(e) => setNewUserRole(e.target.value as any)}
-                className="w-full h-9 px-3 rounded-md bg-slate-950 border border-slate-700 text-white text-xs"
-              >
-                <option value="counter">VIP Counter Officer</option>
-                <option value="branch_staff">Branch Staff</option>
-              </select>
-            </div>
-            {newUserRole === 'counter' && (
+      {createUserOpen && (
+        <Dialog open={createUserOpen} onOpenChange={setCreateUserOpen}>
+          <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-white text-lg">Create Counter / Staff Account</DialogTitle>
+              <DialogDescription className="text-slate-400 text-xs">
+                Create an account with simple Username & Default Password.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleCreateNewUser} className="space-y-3 mt-2">
+              {userErrorMsg && <div className="p-2 text-xs rounded bg-red-950 border border-red-800 text-red-400">{userErrorMsg}</div>}
+              {userSuccessMsg && <div className="p-2 text-xs rounded bg-emerald-950 border border-emerald-800 text-emerald-400">{userSuccessMsg}</div>}
               <div className="space-y-1">
-                <Label className="text-slate-200 text-xs">Assign VIP Counter</Label>
+                <Label className="text-slate-200 text-xs">Officer / Display Name</Label>
+                <Input
+                  placeholder="e.g. Mahaoya Counter Officer"
+                  value={newUserFullName}
+                  onChange={(e) => setNewUserFullName(e.target.value)}
+                  required
+                  className="bg-slate-950 border-slate-700 text-white text-xs h-9"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-slate-200 text-xs">Login Username</Label>
+                <Input
+                  placeholder="e.g. mahaoya / siripura / aralaganwila"
+                  value={newUserUsername}
+                  onChange={(e) => setNewUserUsername(e.target.value)}
+                  required
+                  className="bg-slate-950 border-slate-700 text-white font-mono text-xs h-9"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-slate-200 text-xs">Account Role</Label>
                 <select
-                  value={newUserCounter}
-                  onChange={(e) => setNewUserCounter(e.target.value)}
+                  value={newUserRole}
+                  onChange={(e) => setNewUserRole(e.target.value as any)}
                   className="w-full h-9 px-3 rounded-md bg-slate-950 border border-slate-700 text-white text-xs"
                 >
-                  <option value="Mahaoya">Mahaoya VIP Counter</option>
-                  <option value="Siripura">Siripura VIP Counter</option>
-                  <option value="Aralaganwila">Aralaganwila VIP Counter</option>
+                  <option value="counter">VIP Counter Officer</option>
+                  <option value="branch_staff">Branch Staff</option>
                 </select>
               </div>
-            )}
-            <div className="space-y-1">
-              <Label className="text-slate-200 text-xs">Default Password</Label>
-              <Input
-                type="password"
-                placeholder="Minimum 6 characters"
-                value={newUserPassword}
-                onChange={(e) => setNewUserPassword(e.target.value)}
-                required
-                className="bg-slate-950 border-slate-700 text-white text-xs h-9"
-              />
-            </div>
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setCreateUserOpen(false)} className="border-slate-700 text-slate-300 text-xs">
-                Cancel
-              </Button>
-              <Button type="submit" disabled={creatingUser} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs">
-                {creatingUser ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5 mr-1.5" />}
-                Create User
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+              {newUserRole === 'counter' && (
+                <div className="space-y-1">
+                  <Label className="text-slate-200 text-xs">Assign VIP Counter</Label>
+                  <select
+                    value={newUserCounter}
+                    onChange={(e) => setNewUserCounter(e.target.value)}
+                    className="w-full h-9 px-3 rounded-md bg-slate-950 border border-slate-700 text-white text-xs"
+                  >
+                    <option value="Mahaoya">Mahaoya VIP Counter</option>
+                    <option value="Siripura">Siripura VIP Counter</option>
+                    <option value="Aralaganwila">Aralaganwila VIP Counter</option>
+                  </select>
+                </div>
+              )}
+              <div className="space-y-1">
+                <Label className="text-slate-200 text-xs">Default Password</Label>
+                <Input
+                  type="password"
+                  placeholder="Minimum 6 characters"
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  required
+                  className="bg-slate-950 border-slate-700 text-white text-xs h-9"
+                />
+              </div>
+              <DialogFooter className="pt-2">
+                <Button type="button" variant="outline" onClick={() => setCreateUserOpen(false)} className="border-slate-700 text-slate-300 text-xs">
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={creatingUser} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs">
+                  {creatingUser ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5 mr-1.5" />}
+                  Create User
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Password Modal */}
-      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-white text-lg">Change Your Password</DialogTitle>
-            <DialogDescription className="text-slate-400 text-xs">Update your portal password securely.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleChangePassword} className="space-y-3 mt-2">
-            {passwordError && <div className="p-2 text-xs rounded bg-red-950 border border-red-800 text-red-400">{passwordError}</div>}
-            {passwordSuccess && <div className="p-2 text-xs rounded bg-emerald-950 border border-emerald-800 text-emerald-400">{passwordSuccess}</div>}
-            <div className="space-y-1">
-              <Label className="text-slate-200 text-xs">Current Password</Label>
-              <Input
-                type="password"
-                placeholder="••••••••"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                required
-                className="bg-slate-950 border-slate-700 text-white text-xs h-9"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-slate-200 text-xs">New Password</Label>
-              <Input
-                type="password"
-                placeholder="••••••••"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                className="bg-slate-950 border-slate-700 text-white text-xs h-9"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-slate-200 text-xs">Confirm New Password</Label>
-              <Input
-                type="password"
-                placeholder="••••••••"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                className="bg-slate-950 border-slate-700 text-white text-xs h-9"
-              />
-            </div>
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setPasswordDialogOpen(false)} className="border-slate-700 text-slate-300 text-xs">
-                Cancel
-              </Button>
-              <Button type="submit" disabled={changingPassword} className="bg-blue-600 hover:bg-blue-500 text-white text-xs">
-                {changingPassword ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <KeyRound className="w-3.5 h-3.5 mr-1.5" />}
-                Update Password
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {passwordDialogOpen && (
+        <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+          <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-white text-lg">Change Your Password</DialogTitle>
+              <DialogDescription className="text-slate-400 text-xs">Update your portal password securely.</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleChangePassword} className="space-y-3 mt-2">
+              {passwordError && <div className="p-2 text-xs rounded bg-red-950 border border-red-800 text-red-400">{passwordError}</div>}
+              {passwordSuccess && <div className="p-2 text-xs rounded bg-emerald-950 border border-emerald-800 text-emerald-400">{passwordSuccess}</div>}
+              <div className="space-y-1">
+                <Label className="text-slate-200 text-xs">Current Password</Label>
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                  className="bg-slate-950 border-slate-700 text-white text-xs h-9"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-slate-200 text-xs">New Password</Label>
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  className="bg-slate-950 border-slate-700 text-white text-xs h-9"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-slate-200 text-xs">Confirm New Password</Label>
+                <Input
+                  type="password"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  className="bg-slate-950 border-slate-700 text-white text-xs h-9"
+                />
+              </div>
+              <DialogFooter className="pt-2">
+                <Button type="button" variant="outline" onClick={() => setPasswordDialogOpen(false)} className="border-slate-700 text-slate-300 text-xs">
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={changingPassword} className="bg-blue-600 hover:bg-blue-500 text-white text-xs">
+                  {changingPassword ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <KeyRound className="w-3.5 h-3.5 mr-1.5" />}
+                  Update Password
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
