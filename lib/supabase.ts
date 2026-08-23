@@ -1,7 +1,7 @@
-import { createBrowserClient } from '@supabase/ssr'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
-export const createClient = () =>
-  createBrowserClient(
+export const createClient = () => {
+  return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -9,6 +9,8 @@ export const createClient = () =>
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        storageKey: 'ceylinco_auth_session',
       },
     }
   )
+}

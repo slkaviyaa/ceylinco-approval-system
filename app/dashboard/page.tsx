@@ -82,7 +82,7 @@ interface DocumentItem {
 export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [documents, setDocuments] = useState<DocumentItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   
   // Search & Filter state
@@ -143,25 +143,29 @@ export default function DashboardPage() {
   const isPrivileged = profile?.role === 'manager' || profile?.role === 'admin'
 
   useEffect(() => {
-    let isMounted = true
-
-    // Safety Fallback Timer (3 seconds max load)
-    const safetyTimer = setTimeout(() => {
-      if (isMounted) {
-        setLoading(false)
+    // 1. Immediate Session Check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        window.location.href = '/login'
+        return
       }
-    }, 3000)
+      loadUserData(session.user)
+    })
 
-    const init = async () => {
-      await fetchInitialData()
-      if (isMounted) {
-        clearTimeout(safetyTimer)
-        setLoading(false)
+    // 2. Auth State Listener
+    const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (session?.user) {
+          loadUserData(session.user)
+        } else if (event === 'SIGNED_OUT') {
+          window.location.href = '/login'
+        }
       }
-    }
+    )
 
-    init()
+    fetchDocuments()
 
+    // 3. Realtime Subscription
     const channel = supabase
       .channel('realtime_documents')
       .on(
@@ -174,51 +178,34 @@ export default function DashboardPage() {
       .subscribe()
 
     return () => {
-      isMounted = false
-      clearTimeout(safetyTimer)
+      authListener?.unsubscribe()
       supabase.removeChannel(channel)
     }
   }, [])
 
-  const fetchInitialData = async () => {
+  const loadUserData = async (user: any) => {
     try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle()
 
-      if (userError || !user) {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session?.user) {
-          router.push('/login')
-          return
-        }
+      if (profileData) {
+        setProfile(profileData)
+      } else {
+        setProfile({
+          id: user.id,
+          email: user.email || '',
+          username: user.user_metadata?.username || null,
+          full_name: user.user_metadata?.full_name || 'Ceylinco Officer',
+          role: user.user_metadata?.role || 'counter',
+          counter_name: user.user_metadata?.counter_name || 'Dehiattakandiya_Main',
+          signature_url: null,
+        })
       }
-
-      const activeUser = user || (await supabase.auth.getSession()).data.session?.user
-
-      if (activeUser) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', activeUser.id)
-          .maybeSingle()
-
-        if (profileData) {
-          setProfile(profileData)
-        } else {
-          setProfile({
-            id: activeUser.id,
-            email: activeUser.email || '',
-            username: activeUser.user_metadata?.username || null,
-            full_name: activeUser.user_metadata?.full_name || 'Ceylinco Officer',
-            role: activeUser.user_metadata?.role || 'counter',
-            counter_name: activeUser.user_metadata?.counter_name || 'Dehiattakandiya_Main',
-            signature_url: null,
-          })
-        }
-      }
-
-      await fetchDocuments()
-    } catch (err) {
-      console.error('Initialization fallback triggered:', err)
+    } catch (e) {
+      console.error('Profile fetch error:', e)
     }
   }
 
@@ -239,8 +226,7 @@ export default function DashboardPage() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
+    window.location.href = '/login'
   }
 
   // Multi-page batch camera scanner
@@ -524,15 +510,6 @@ export default function DashboardPage() {
     XLSX.writeFile(workbook, `Ceylinco_VIP_Clearance_${format(new Date(), 'yyyyMMdd_HHmm')}.xlsx`)
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500 mr-2" />
-        <span>Loading Ceylinco Portal...</span>
-      </div>
-    )
-  }
-
   const filteredDocs = documents.filter((doc) => {
     const matchesSearch =
       doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -577,7 +554,7 @@ export default function DashboardPage() {
 
           <div className="flex items-center space-x-2 sm:space-x-3">
             <div className="text-right hidden sm:block">
-              <div className="text-sm font-semibold text-white">{profile?.full_name}</div>
+              <div className="text-sm font-semibold text-white">{profile?.full_name || 'Loading...'}</div>
               <div className="text-xs text-blue-400 font-medium">{getRoleLabel()}</div>
             </div>
 
@@ -797,7 +774,7 @@ export default function DashboardPage() {
         </p>
       </footer>
 
-      {/* Upload Document Modal with Multi-Page Scanner */}
+      {/* Upload Document Modal */}
       <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
         <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -961,7 +938,7 @@ export default function DashboardPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Manager Review Modal */}
+      {/* Review Modal */}
       <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
         <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-lg">
           <DialogHeader>

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ShieldCheck, Loader2, Code2, Sparkles } from 'lucide-react'
+import { ShieldCheck, Loader2, Code2 } from 'lucide-react'
 
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState('')
@@ -31,17 +31,18 @@ export default function LoginPage() {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email: loginEmail,
-        password,
+        password: password,
       })
 
-      if (error) throw error
+      if (error) {
+        throw new Error(error.message || 'Invalid username/email or password.')
+      }
 
-      if (data.user) {
-        router.push('/dashboard')
-        router.refresh()
+      if (data?.session) {
+        window.location.href = '/dashboard'
       }
     } catch (error: any) {
-      setErrorMsg('Invalid Username/Email or Password. Please try again.')
+      setErrorMsg(error.message || 'Login failed. Please check your credentials.')
     } finally {
       setLoading(false)
     }
@@ -120,7 +121,6 @@ export default function LoginPage() {
         </Card>
       </div>
 
-      {/* Official Developer Branding Footer */}
       <footer className="text-center text-xs text-slate-500 space-y-1 pt-6">
         <div className="flex items-center justify-center gap-1.5 font-medium text-slate-400">
           <Code2 className="w-4 h-4 text-blue-500" />
