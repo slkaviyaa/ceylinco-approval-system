@@ -110,8 +110,6 @@ function DashboardContent() {
   const searchParams = useSearchParams()
   const currentView = searchParams.get('view') || 'my-pending'
 
-  const isPrivileged = profile?.role === 'manager' || profile?.role === 'admin'
-
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
@@ -320,12 +318,18 @@ function DashboardContent() {
   if (currentView === 'branch-pending') {
     displayedDocs = filteredSearchDocs.filter((d) => d.status === 'pending')
     viewTitle = 'Branch Pending Queue'
+  } else if (currentView === 'branch-approved') {
+    displayedDocs = filteredSearchDocs.filter((d) => d.status === 'approved')
+    viewTitle = 'All Branch Approved Documents'
+  } else if (currentView === 'branch-rejected') {
+    displayedDocs = filteredSearchDocs.filter((d) => d.status === 'rejected')
+    viewTitle = 'All Branch Rejected Documents'
   } else if (currentView === 'branch-all') {
     displayedDocs = filteredSearchDocs
-    viewTitle = 'All Branch Documents'
+    viewTitle = 'All Branch Submitted Documents'
   } else if (currentView === 'my-approved') {
     displayedDocs = myDocs.filter((d) => d.status === 'approved')
-    viewTitle = 'My Endorsed / Approved Documents'
+    viewTitle = 'My Approved Submissions'
   } else if (currentView === 'my-rejected') {
     displayedDocs = myDocs.filter((d) => d.status === 'rejected')
     viewTitle = 'My Rejected Submissions'
@@ -389,7 +393,7 @@ function DashboardContent() {
 
           <Card className="bg-slate-900 border-slate-800">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-xs font-medium text-slate-400">My Endorsed / Approved</CardTitle>
+              <CardTitle className="text-xs font-medium text-slate-400">My Approved</CardTitle>
               <CheckCircle2 className="w-4 h-4 text-emerald-500" />
             </CardHeader>
             <CardContent>

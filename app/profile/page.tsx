@@ -9,8 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { User, Shield, Camera, Loader2, Save, Users, Calendar, Phone, MapPin, CheckCircle2 } from 'lucide-react'
-import { format } from 'date-fns'
+import { User, Camera, Trash2, Loader2, Save, Users, CheckCircle2 } from 'lucide-react'
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null)
@@ -48,7 +47,6 @@ export default function ProfilePage() {
       setPhone(pData.phone || '')
       setAddress(pData.address || '')
 
-      // If System Admin, fetch ALL user personal records
       if (pData.role === 'admin') {
         const { data: list } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
         if (list) setAllProfiles(list)
@@ -82,6 +80,21 @@ export default function ProfilePage() {
     }
   }
 
+  const handleRemoveAvatar = async () => {
+    if (!profile) return
+    setUploadingImg(true)
+    try {
+      await supabase.from('profiles').update({ avatar_url: null }).eq('id', profile.id)
+      setProfile({ ...profile, avatar_url: null })
+      setMsg('Profile photo removed successfully!')
+      setTimeout(() => setMsg(''), 3000)
+    } catch (err: any) {
+      alert(err.message)
+    } finally {
+      setUploadingImg(false)
+    }
+  }
+
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
@@ -91,8 +104,8 @@ export default function ProfilePage() {
       const { error } = await supabase.from('profiles').update({
         full_name: fullName,
         birthday: birthday || null,
-        phone: phone,
-        address: address,
+        phone,
+        address,
       }).eq('id', profile.id)
 
       if (error) throw error
@@ -147,20 +160,34 @@ export default function ProfilePage() {
               )}
             </div>
 
-            <label className="cursor-pointer">
+            <div className="flex flex-col gap-2 w-full">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 disabled={uploadingImg}
-                className="border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs"
+                className="border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs w-full"
                 onClick={() => document.getElementById('avatar-input')?.click()}
               >
                 {uploadingImg ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Camera className="w-3.5 h-3.5 mr-1.5" />}
                 Change Photo
               </Button>
-            </label>
-            <input id="avatar-input" type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+              <input id="avatar-input" type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+
+              {profile?.avatar_url && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploadingImg}
+                  onClick={handleRemoveAvatar}
+                  className="border-rose-900/60 bg-rose-950/30 text-rose-400 hover:bg-rose-950/60 text-xs w-full"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                  Remove Photo
+                </Button>
+              )}
+            </div>
 
             <div className="mt-4 space-y-1">
               <h3 className="font-semibold text-white text-sm">{profile?.full_name}</h3>
@@ -193,12 +220,12 @@ export default function ProfilePage() {
                   </div>
 
                   <div className="space-y-1">
-                    <Label className="text-slate-300 text-xs">Date of Birth</Label>
+                    <Label className="text-slate-300 text-xs">Date of Birth (Birthday)</Label>
                     <Input
                       type="date"
                       value={birthday}
                       onChange={(e) => setBirthday(e.target.value)}
-                      className="bg-slate-950 border-slate-700 text-white text-xs h-9"
+                      className="bg-slate-950 border-slate-700 text-white text-xs h-9 [color-scheme:dark]"
                     />
                   </div>
                 </div>
