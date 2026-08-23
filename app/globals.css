@@ -38,8 +38,3 @@ html, body {
   touch-action: manipulation;
   min-height: 100vh;
 }
-
-button, a, input, select {
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
