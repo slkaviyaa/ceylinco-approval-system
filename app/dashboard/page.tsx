@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useRef, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import SidebarLayout from '@/components/SidebarLayout'
 import { Button } from '@/components/ui/button'
@@ -9,7 +9,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -38,6 +37,7 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
+  AlertCircle
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { PDFDocument } from 'pdf-lib'
@@ -71,12 +71,20 @@ interface DocumentItem {
 }
 
 export default function DashboardPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">Loading Dashboard...</div>}>
+      <DashboardContent />
+    </Suspense>
+  )
+}
+
+function DashboardContent() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [documents, setDocuments] = useState<DocumentItem[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeTab, setActiveTab] = useState('my-pending')
+  const [bannerMsg, setBannerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Upload dialog state
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
@@ -99,6 +107,8 @@ export default function DashboardPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const currentView = searchParams.get('view') || 'my-pending'
 
   const isPrivileged = profile?.role === 'manager' || profile?.role === 'admin'
 
@@ -147,9 +157,6 @@ export default function DashboardPage() {
 
     if (profileData) {
       setProfile(profileData as Profile)
-      if (profileData.role === 'manager' || profileData.role === 'admin') {
-        setActiveTab('branch-pending')
-      }
     }
     setLoading(false)
   }
@@ -204,7 +211,7 @@ export default function DashboardPage() {
         new File([combinedBlob], `Scanned_Doc_${Date.now()}.pdf`, { type: 'application/pdf' })
       )
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      setBannerMsg({ type: 'error', text: 'PDF Compile Error: ' + err.message })
     } finally {
       setIsProcessingPdf(false)
     }
@@ -241,9 +248,10 @@ export default function DashboardPage() {
       setSenderNote('')
       setSelectedFile(null)
       setScannedPages([])
+      setBannerMsg({ type: 'success', text: 'Document submitted successfully for manager approval!' })
       fetchDocuments()
     } catch (err: any) {
-      alert(err.message)
+      setBannerMsg({ type: 'error', text: err.message || 'Upload failed' })
     } finally {
       setUploading(false)
     }
@@ -279,9 +287,10 @@ export default function DashboardPage() {
       setActionDialogOpen(false)
       setSelectedDoc(null)
       setManagerNote('')
+      setBannerMsg({ type: 'success', text: `Document ${status} successfully!` })
       fetchDocuments()
     } catch (err: any) {
-      alert(err.message)
+      setBannerMsg({ type: 'error', text: err.message || 'Action failed' })
     } finally {
       setActionLoading(false)
     }
@@ -296,7 +305,7 @@ export default function DashboardPage() {
     )
   }
 
-  // Search & Role Tabs filtering
+  // Filtering documents based on sidebar view param
   const filteredSearchDocs = documents.filter((doc) =>
     doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     doc.submitted_by_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -306,27 +315,56 @@ export default function DashboardPage() {
   const myDocs = filteredSearchDocs.filter((d) => d.submitted_by === profile?.id)
 
   let displayedDocs: DocumentItem[] = []
-  if (activeTab === 'my-pending') displayedDocs = myDocs.filter((d) => d.status === 'pending')
-  if (activeTab === 'my-approved') displayedDocs = myDocs.filter((d) => d.status === 'approved')
-  if (activeTab === 'my-rejected') displayedDocs = myDocs.filter((d) => d.status === 'rejected')
-  if (activeTab === 'my-all') displayedDocs = myDocs
-  if (activeTab === 'branch-pending') displayedDocs = filteredSearchDocs.filter((d) => d.status === 'pending')
-  if (activeTab === 'branch-all') displayedDocs = filteredSearchDocs
+  let viewTitle = 'My Pending Submissions'
+
+  if (currentView === 'branch-pending') {
+    displayedDocs = filteredSearchDocs.filter((d) => d.status === 'pending')
+    viewTitle = 'Branch Pending Queue'
+  } else if (currentView === 'branch-all') {
+    displayedDocs = filteredSearchDocs
+    viewTitle = 'All Branch Documents'
+  } else if (currentView === 'my-approved') {
+    displayedDocs = myDocs.filter((d) => d.status === 'approved')
+    viewTitle = 'My Endorsed / Approved Documents'
+  } else if (currentView === 'my-rejected') {
+    displayedDocs = myDocs.filter((d) => d.status === 'rejected')
+    viewTitle = 'My Rejected Submissions'
+  } else if (currentView === 'my-all') {
+    displayedDocs = myDocs
+    viewTitle = 'All My Submissions'
+  } else {
+    displayedDocs = myDocs.filter((d) => d.status === 'pending')
+    viewTitle = 'My Pending Submissions'
+  }
 
   const myPendingCount = myDocs.filter((d) => d.status === 'pending').length
   const myApprovedCount = myDocs.filter((d) => d.status === 'approved').length
   const myRejectedCount = myDocs.filter((d) => d.status === 'rejected').length
-  const branchPendingCount = filteredSearchDocs.filter((d) => d.status === 'pending').length
 
   return (
     <SidebarLayout profile={profile} onSignOut={handleSignOut}>
       <div className="space-y-6">
+        {/* Banner Alert (In-App Toast) */}
+        {bannerMsg && (
+          <div className={`p-3 rounded-lg text-xs flex items-center justify-between border ${
+            bannerMsg.type === 'success' 
+              ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300' 
+              : 'bg-rose-950/60 border-rose-800 text-rose-300'
+          }`}>
+            <div className="flex items-center gap-2">
+              {bannerMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+              <span>{bannerMsg.text}</span>
+            </div>
+            <button onClick={() => setBannerMsg(null)} className="text-slate-400 hover:text-white text-xs px-1">✕</button>
+          </div>
+        )}
+
         {/* Header Bar */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-white tracking-tight">Document Clearance Queue</h2>
-            <p className="text-xs text-slate-400">
-              Welcome back, <strong className="text-slate-200">{profile?.full_name}</strong> ({profile?.counter_name || 'Main Branch'})
+            <h2 className="text-2xl font-bold text-white tracking-tight">{viewTitle}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Managing document clearance for <strong className="text-slate-200">{profile?.counter_name || 'Main Branch'}</strong>
             </p>
           </div>
           <Button
@@ -381,60 +419,15 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* Tabs Pipeline */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="bg-slate-900 border border-slate-800 text-slate-400 p-1 flex-wrap h-auto gap-1">
-            {isPrivileged && (
-              <TabsTrigger
-                value="branch-pending"
-                className="data-[state=active]:bg-amber-600 data-[state=active]:text-white text-xs"
-              >
-                Branch Pending ({branchPendingCount})
-              </TabsTrigger>
-            )}
-            {isPrivileged && (
-              <TabsTrigger
-                value="branch-all"
-                className="data-[state=active]:bg-slate-800 data-[state=active]:text-white text-xs"
-              >
-                All Branch Documents ({filteredSearchDocs.length})
-              </TabsTrigger>
-            )}
-            <TabsTrigger
-              value="my-pending"
-              className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-xs"
-            >
-              My Pending ({myPendingCount})
-            </TabsTrigger>
-            <TabsTrigger
-              value="my-approved"
-              className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white text-xs"
-            >
-              My Approved ({myApprovedCount})
-            </TabsTrigger>
-            <TabsTrigger
-              value="my-rejected"
-              className="data-[state=active]:bg-rose-600 data-[state=active]:text-white text-xs"
-            >
-              My Rejections ({myRejectedCount})
-            </TabsTrigger>
-            <TabsTrigger
-              value="my-all"
-              className="data-[state=active]:bg-slate-800 data-[state=active]:text-white text-xs"
-            >
-              All My Submissions ({myDocs.length})
-            </TabsTrigger>
-          </TabsList>
-
-          <DocumentTable
-            docs={displayedDocs}
-            profile={profile}
-            onActionClick={(doc) => {
-              setSelectedDoc(doc)
-              setActionDialogOpen(true)
-            }}
-          />
-        </Tabs>
+        {/* Document Table */}
+        <DocumentTable
+          docs={displayedDocs}
+          profile={profile}
+          onActionClick={(doc) => {
+            setSelectedDoc(doc)
+            setActionDialogOpen(true)
+          }}
+        />
       </div>
 
       {/* Upload Modal */}
@@ -805,7 +798,7 @@ function DocumentTable({
                       download
                       className="inline-flex items-center px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-medium"
                     >
-                      <Download className="w-3 h-3 mr-1" /> PDF
+                      <Download className="w-3.5 h-3.5 mr-1" /> PDF
                     </a>
                   </div>
                 )}
