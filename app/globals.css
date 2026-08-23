@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 @layer base {
   :root {
@@ -37,4 +35,9 @@ html, body {
   -webkit-overflow-scrolling: touch;
   touch-action: manipulation;
   min-height: 100vh;
+}
+
+button, a, input, select {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
