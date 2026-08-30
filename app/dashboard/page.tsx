@@ -568,34 +568,34 @@ function DashboardContent() {
       {/* ─── Endorse Dialog ─── */}
       {actionDialogOpen && (
         <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
-          <DialogContent className="bg-[#0b1525] border-[#1a2e4a] text-slate-100 max-w-6xl w-[95vw] max-h-[95vh] h-[92vh] flex flex-col p-4 rounded-2xl">
+          <DialogContent className="bg-[#0b1525] border-[#1a2e4a] text-slate-100 w-[96vw] max-w-[96vw] sm:max-w-[96vw] lg:max-w-7xl h-[92vh] max-h-[96vh] flex flex-col p-4 sm:p-5 rounded-2xl">
             <DialogHeader className="shrink-0 pb-3 border-b border-[#1a2e4a]">
-              <DialogTitle className="text-white text-sm flex items-center justify-between">
+              <DialogTitle className="text-white text-sm sm:text-base flex items-center justify-between">
                 <span className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center">
-                    <Move className="w-3 h-3 text-indigo-400" />
+                  <div className="w-7 h-7 rounded-lg bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center">
+                    <Move className="w-3.5 h-3.5 text-indigo-400" />
                   </div>
-                  Endorsement Canvas
+                  Endorsement & Stamp Placement Canvas
                 </span>
-                <span className="text-xs text-slate-500 font-normal truncate max-w-xs">{selectedDoc?.title}</span>
+                <span className="text-xs text-slate-400 font-normal truncate max-w-sm">{selectedDoc?.title}</span>
               </DialogTitle>
             </DialogHeader>
 
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 flex-1 min-h-0 pt-2">
+            <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0 pt-2 overflow-hidden">
               {/* Controls Panel */}
-              <div className="space-y-3 text-xs overflow-y-auto lg:pr-2">
+              <div className="w-full lg:w-80 shrink-0 flex flex-col gap-3 text-xs overflow-y-auto pr-1">
                 <div className="p-3 bg-[#04091a] rounded-xl border border-[#1a2e4a] space-y-1">
-                  <p className="text-slate-200 font-semibold text-[11px] truncate">{selectedDoc?.title}</p>
-                  <p className="text-slate-500 text-[10px]">{selectedDoc?.counter_name} · {selectedDoc?.submitted_by_name}</p>
+                  <p className="text-slate-200 font-semibold text-xs truncate">{selectedDoc?.title}</p>
+                  <p className="text-slate-400 text-[11px]">{selectedDoc?.counter_name} · {selectedDoc?.submitted_by_name}</p>
                   {selectedDoc?.sender_note && (
-                    <p className="text-slate-400 text-[10px] italic">"{selectedDoc.sender_note}"</p>
+                    <p className="text-indigo-300 text-[10px] italic mt-1 bg-indigo-950/30 p-1.5 rounded border border-indigo-500/10">"{selectedDoc.sender_note}"</p>
                   )}
                 </div>
 
                 <div className="space-y-1.5">
                   <Label className="text-slate-400 text-[10px] uppercase tracking-wider font-semibold">Stamp Type</Label>
                   <select value={stampType} onChange={(e) => setStampType(e.target.value)}
-                    className="w-full h-9 px-3 rounded-xl bg-[#04091a] border border-[#1a2e4a] text-white text-xs outline-none focus:border-indigo-500/50">
+                    className="w-full h-10 px-3 rounded-xl bg-[#04091a] border border-[#1a2e4a] text-white text-xs outline-none focus:border-indigo-500/50">
                     <option value="APPROVED">APPROVED & AUTHORIZED</option>
                     <option value="RECOMMENDED">RECOMMENDED</option>
                     <option value="VERIFIED">VERIFIED & CERTIFIED</option>
@@ -605,32 +605,32 @@ function DashboardContent() {
                 <div className="space-y-1.5">
                   <Label className="text-slate-400 text-[10px] uppercase tracking-wider font-semibold">Manager Remarks</Label>
                   <Input
-                    placeholder="Optional note..."
+                    placeholder="Optional note / instruction..."
                     value={managerNote}
                     onChange={(e) => setManagerNote(e.target.value)}
-                    className="bg-[#04091a] border-[#1a2e4a] text-white text-xs h-9 rounded-xl"
+                    className="bg-[#04091a] border-[#1a2e4a] text-white text-xs h-10 rounded-xl"
                   />
                 </div>
 
-                <div className="p-3 bg-indigo-950/20 border border-indigo-500/15 rounded-xl text-[10px] text-indigo-300 leading-relaxed">
-                  💡 <strong>Drag the stamp box</strong> on the document to position it exactly where you want it.
+                <div className="p-3 bg-indigo-950/30 border border-indigo-500/20 rounded-xl text-[11px] text-indigo-300 leading-relaxed">
+                  👆 <strong>Drag the stamp box</strong> directly onto the document preview to position the manager endorsement.
                 </div>
 
-                <div className="pt-1 space-y-2">
+                <div className="mt-auto pt-2 space-y-2">
                   <Button type="button" disabled={actionLoading} onClick={() => handleManagerDecision('approved')}
-                    className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 rounded-xl gap-1.5">
+                    className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 rounded-xl gap-2">
                     {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                    Endorse & Approve
+                    Endorse & Approve Document
                   </Button>
                   <Button type="button" variant="outline" disabled={actionLoading} onClick={() => handleManagerDecision('rejected')}
-                    className="w-full h-8 border-rose-800/50 text-rose-400 hover:bg-rose-950/20 text-xs rounded-xl gap-1.5">
+                    className="w-full h-9 border-rose-800/50 bg-rose-950/15 text-rose-400 hover:bg-rose-950/30 text-xs rounded-xl gap-1.5">
                     <XCircle className="w-3.5 h-3.5" /> Reject Submission
                   </Button>
                 </div>
               </div>
 
               {/* Canvas Area */}
-              <div className="lg:col-span-3 h-full flex flex-col min-h-0 bg-[#04091a] rounded-xl border border-[#1a2e4a] p-2">
+              <div className="flex-1 min-h-[300px] lg:min-h-0 h-full flex flex-col bg-[#04091a] rounded-xl border border-[#1a2e4a] p-2 overflow-hidden">
                 <div
                   ref={canvasRef}
                   onMouseMove={handleCanvasMouseMove}
@@ -638,7 +638,7 @@ function DashboardContent() {
                   onMouseLeave={() => setIsDragging(false)}
                   onTouchMove={handleCanvasTouchMove}
                   onTouchEnd={() => setIsDragging(false)}
-                  className="relative w-full flex-1 bg-white rounded-lg shadow-inner overflow-hidden select-none cursor-crosshair"
+                  className="relative w-full h-full bg-slate-900 rounded-lg shadow-inner overflow-hidden select-none cursor-crosshair flex items-center justify-center"
                   style={{ touchAction: 'none' }}
                 >
                   <iframe
