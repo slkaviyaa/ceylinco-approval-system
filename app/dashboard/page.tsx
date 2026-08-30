@@ -136,33 +136,88 @@ function DashboardContent() {
     router.push('/login')
   }
 
-  const handlePageCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const previewUrl = URL.createObjectURL(file)
-    setScannedPages((prev) => [...prev, { id: Math.random().toString(), blob: file, preview: previewUrl }])
+  // Process captured photo through Canvas API → grayscale + contrast = scan look
+  const processImageAsScan = (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      const url = URL.createObjectURL(file)
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.width
+        canvas.height = img.height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { reject(new Error('Canvas not supported')); return }
+        // Apply document scan filter: grayscale + enhanced contrast + slight brightness
+        ctx.filter = 'grayscale(100%) contrast(1.6) brightness(1.08)'
+        ctx.drawImage(img, 0, 0)
+        URL.revokeObjectURL(url)
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob)
+          else reject(new Error('Failed to process image'))
+        }, 'image/jpeg', 0.92)
+      }
+      img.onerror = () => reject(new Error('Failed to load image'))
+      img.src = url
+    })
   }
 
-  const removeScannedPage = (id: string) => {
-    setScannedPages((prev) => prev.filter((p) => p.id !== id))
+  // Auto-compile pages list → PDF blob
+  const compilePagesToPdf = async (pages: { blob: Blob }[]): Promise<File> => {
+    const pdfDoc = await PDFDocument.create()
+    for (const pageItem of pages) {
+      const imageBytes = await pageItem.blob.arrayBuffer()
+      const img = pageItem.blob.type.includes('png')
+        ? await pdfDoc.embedPng(imageBytes)
+        : await pdfDoc.embedJpg(imageBytes)
+      const page = pdfDoc.addPage([img.width, img.height])
+      page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height })
+    }
+    const pdfBytes = await pdfDoc.save()
+    const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' })
+    return new File([blob], `Scanned_Doc_${Date.now()}.pdf`, { type: 'application/pdf' })
+  }
+
+  const handlePageCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // Reset input so same file can be re-captured
+    e.target.value = ''
+    setIsProcessingPdf(true)
+    try {
+      const scannedBlob = await processImageAsScan(file)
+      const previewUrl = URL.createObjectURL(scannedBlob)
+      const newPage = { id: Math.random().toString(), blob: scannedBlob, preview: previewUrl }
+      const updatedPages = [...scannedPages, newPage]
+      setScannedPages(updatedPages)
+      // Auto-compile to PDF immediately — no manual "Compile" step needed
+      const pdfFile = await compilePagesToPdf(updatedPages)
+      setSelectedFile(pdfFile)
+    } catch (err: any) {
+      setBannerMsg({ type: 'error', text: 'Scan error: ' + err.message })
+    } finally {
+      setIsProcessingPdf(false)
+    }
+  }
+
+  const removeScannedPage = async (id: string) => {
+    const updatedPages = scannedPages.filter((p) => p.id !== id)
+    setScannedPages(updatedPages)
+    if (updatedPages.length === 0) {
+      setSelectedFile(null)
+    } else {
+      try {
+        const pdfFile = await compilePagesToPdf(updatedPages)
+        setSelectedFile(pdfFile)
+      } catch { /* ignore */ }
+    }
   }
 
   const buildMultiPagePdf = async () => {
     if (scannedPages.length === 0) return
     setIsProcessingPdf(true)
     try {
-      const pdfDoc = await PDFDocument.create()
-      for (const pageItem of scannedPages) {
-        const imageBytes = await pageItem.blob.arrayBuffer()
-        const img = pageItem.blob.type.includes('png')
-          ? await pdfDoc.embedPng(imageBytes)
-          : await pdfDoc.embedJpg(imageBytes)
-        const page = pdfDoc.addPage([img.width, img.height])
-        page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height })
-      }
-      const pdfBytes = await pdfDoc.save()
-      const combinedBlob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' })
-      setSelectedFile(new File([combinedBlob], `Scanned_Doc_${Date.now()}.pdf`, { type: 'application/pdf' }))
+      const pdfFile = await compilePagesToPdf(scannedPages)
+      setSelectedFile(pdfFile)
     } catch (err: any) {
       setBannerMsg({ type: 'error', text: 'PDF Compile Error: ' + err.message })
     } finally {
@@ -198,6 +253,16 @@ function DashboardContent() {
     const rect = canvasRef.current.getBoundingClientRect()
     const x = Math.max(5, Math.min(95, ((e.clientX - rect.left) / rect.width) * 100))
     const y = Math.max(5, Math.min(95, ((e.clientY - rect.top) / rect.height) * 100))
+    setStampPos({ x, y })
+  }
+
+  const handleCanvasTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || !canvasRef.current) return
+    e.preventDefault()
+    const touch = e.touches[0]
+    const rect = canvasRef.current.getBoundingClientRect()
+    const x = Math.max(5, Math.min(95, ((touch.clientX - rect.left) / rect.width) * 100))
+    const y = Math.max(5, Math.min(95, ((touch.clientY - rect.top) / rect.height) * 100))
     setStampPos({ x, y })
   }
 
@@ -434,12 +499,21 @@ function DashboardContent() {
                 <Label className="text-slate-400 text-[11px] uppercase tracking-wider font-semibold">Attach Document</Label>
                 <div className="grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => cameraInputRef.current?.click()}
-                    className="flex items-center justify-center gap-2 h-10 rounded-xl border border-[#1a2e4a] bg-[#04091a] text-slate-300 hover:bg-[#111c35] text-xs transition">
-                    <Camera className="w-3.5 h-3.5 text-blue-400" /> Take Photo
+                    disabled={isProcessingPdf}
+                    className="flex flex-col items-center justify-center gap-1 h-16 rounded-xl border border-[#1a2e4a] bg-[#04091a] text-slate-300 hover:bg-[#0d1a2e] hover:border-blue-500/40 text-xs transition disabled:opacity-50">
+                    {isProcessingPdf
+                      ? <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+                      : <Camera className="w-5 h-5 text-blue-400" />}
+                    <span className="text-[10px] text-slate-400">
+                      {isProcessingPdf ? 'Processing scan...' : 'Scan Document'}
+                    </span>
+                    <span className="text-[9px] text-slate-600">Auto-converts to PDF</span>
                   </button>
                   <button type="button" onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center justify-center gap-2 h-10 rounded-xl border border-[#1a2e4a] bg-[#04091a] text-slate-300 hover:bg-[#111c35] text-xs transition">
-                    <FileText className="w-3.5 h-3.5 text-emerald-400" /> Browse PDF
+                    className="flex flex-col items-center justify-center gap-1 h-16 rounded-xl border border-[#1a2e4a] bg-[#04091a] text-slate-300 hover:bg-[#0d1a2e] hover:border-emerald-500/40 text-xs transition">
+                    <FileText className="w-5 h-5 text-emerald-400" />
+                    <span className="text-[10px] text-slate-400">Upload PDF</span>
+                    <span className="text-[9px] text-slate-600">From device storage</span>
                   </button>
                 </div>
                 <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePageCapture} />
@@ -448,17 +522,20 @@ function DashboardContent() {
                 {scannedPages.length > 0 && (
                   <div className="p-3 bg-[#04091a] rounded-xl border border-[#1a2e4a] space-y-2">
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-300">Captured Pages ({scannedPages.length})</span>
-                      <Button type="button" size="sm" onClick={buildMultiPagePdf} disabled={isProcessingPdf}
-                        className="h-7 bg-emerald-600 text-white text-[11px] rounded-lg">
-                        {isProcessingPdf ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
-                        Compile PDF
-                      </Button>
+                      <span className="text-slate-300 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                        {scannedPages.length} page{scannedPages.length > 1 ? 's' : ''} scanned
+                      </span>
+                      <button type="button" onClick={() => cameraInputRef.current?.click()}
+                        disabled={isProcessingPdf}
+                        className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/25 px-2 py-0.5 rounded-lg">
+                        + Add Page
+                      </button>
                     </div>
                     <div className="flex gap-2 flex-wrap">
                       {scannedPages.map((p) => (
                         <div key={p.id} className="relative">
-                          <img src={p.preview} alt="page" className="w-12 h-16 object-cover rounded border border-[#1a2e4a]" />
+                          <img src={p.preview} alt="page" className="w-12 h-16 object-cover rounded border border-[#1a2e4a] grayscale contrast-125" />
                           <button type="button" onClick={() => removeScannedPage(p.id)}
                             className="absolute -top-1 -right-1 w-4 h-4 bg-rose-600 rounded-full text-white text-[10px] flex items-center justify-center">✕</button>
                         </div>
@@ -559,7 +636,10 @@ function DashboardContent() {
                   onMouseMove={handleCanvasMouseMove}
                   onMouseUp={() => setIsDragging(false)}
                   onMouseLeave={() => setIsDragging(false)}
+                  onTouchMove={handleCanvasTouchMove}
+                  onTouchEnd={() => setIsDragging(false)}
                   className="relative w-full flex-1 bg-white rounded-lg shadow-inner overflow-hidden select-none cursor-crosshair"
+                  style={{ touchAction: 'none' }}
                 >
                   <iframe
                     src={`${selectedDoc?.file_url}#toolbar=0&navpanes=0&scrollbar=0`}
@@ -570,7 +650,8 @@ function DashboardContent() {
                   {/* Draggable Stamp */}
                   <div
                     onMouseDown={() => setIsDragging(true)}
-                    style={{ left: `${stampPos.x}%`, top: `${stampPos.y}%`, transform: 'translate(-50%, -50%)' }}
+                    onTouchStart={(e) => { e.preventDefault(); setIsDragging(true) }}
+                    style={{ left: `${stampPos.x}%`, top: `${stampPos.y}%`, transform: 'translate(-50%, -50%)', touchAction: 'none' }}
                     className={`absolute p-2.5 rounded-lg shadow-2xl cursor-grab active:cursor-grabbing bg-white/95 backdrop-blur text-slate-900 border-2 ${
                       isDragging ? 'border-indigo-500 ring-4 ring-indigo-400/20' : 'border-emerald-600'
                     }`}
