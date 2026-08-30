@@ -104,19 +104,35 @@ function DashboardContent() {
   }, [supabase])
 
   const loadUserData = useCallback(async (user: any) => {
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .maybeSingle()
-    if (profileData) setProfile(profileData as Profile)
-    setLoading(false)
-  }, [supabase])
+    try {
+      const { data: profileData, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle()
+      if (error) {
+        // If JWT expired or unauthorized, sign out to reset session
+        if (error.code === 'PGRST301' || error.message?.toLowerCase().includes('jwt') || error.message?.toLowerCase().includes('unauthorized')) {
+          await supabase.auth.signOut()
+          router.push('/login')
+          return
+        }
+      }
+      if (profileData) setProfile(profileData as Profile)
+    } catch (err) {
+      console.warn('loadUserData error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [supabase, router])
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) { router.push('/login'); return }
-      loadUserData(session.user)
+    supabase.auth.getUser().then(({ data: { user }, error }) => {
+      if (error || !user) {
+        router.push('/login')
+        return
+      }
+      loadUserData(user)
     })
     const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange(
       (event, session) => {
@@ -258,8 +274,8 @@ function DashboardContent() {
 
   const handleCanvasTouchMove = (e: React.TouchEvent) => {
     if (!isDragging || !canvasRef.current) return
-    e.preventDefault()
     const touch = e.touches[0]
+    if (!touch) return
     const rect = canvasRef.current.getBoundingClientRect()
     const x = Math.max(5, Math.min(95, ((touch.clientX - rect.left) / rect.width) * 100))
     const y = Math.max(5, Math.min(95, ((touch.clientY - rect.top) / rect.height) * 100))
@@ -650,7 +666,7 @@ function DashboardContent() {
                   {/* Draggable Stamp */}
                   <div
                     onMouseDown={() => setIsDragging(true)}
-                    onTouchStart={(e) => { e.preventDefault(); setIsDragging(true) }}
+                    onTouchStart={() => setIsDragging(true)}
                     style={{ left: `${stampPos.x}%`, top: `${stampPos.y}%`, transform: 'translate(-50%, -50%)', touchAction: 'none' }}
                     className={`absolute p-2.5 rounded-lg shadow-2xl cursor-grab active:cursor-grabbing bg-white/95 backdrop-blur text-slate-900 border-2 ${
                       isDragging ? 'border-indigo-500 ring-4 ring-indigo-400/20' : 'border-emerald-600'
