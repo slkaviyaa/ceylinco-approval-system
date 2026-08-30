@@ -137,9 +137,14 @@ export async function POST(request: Request) {
       }
     }
 
+    // Calculate scale factor relative to standard A4 (595.28 pt) so stamps never look tiny on high-res pages
+    const scaleFactor = Math.max(1, Math.min(4, width / 595.28))
+    const sigWidth = 160 * scaleFactor
+    const sigHeight = 65 * scaleFactor
+
     // Clamp coordinates safely within printable PDF boundaries
-    targetX = Math.max(20, Math.min(width - 195, targetX))
-    targetY = Math.max(35, Math.min(height - 110, targetY))
+    targetX = Math.max(20 * scaleFactor, Math.min(width - sigWidth - 20, targetX))
+    targetY = Math.max(40 * scaleFactor, Math.min(height - sigHeight - 40, targetY))
 
     // 6. Draw signature image if available
     if (sigResponse && sigResponse.ok) {
@@ -155,52 +160,52 @@ export async function POST(request: Request) {
         lastPage.drawImage(sigImage, {
           x: targetX,
           y: targetY,
-          width: 175,
-          height: 70,
+          width: sigWidth,
+          height: sigHeight,
         })
       } catch (e) {
         console.warn('Failed to embed signature image:', e)
       }
     } else {
-      // Draw signature placeholder badge if no signature image uploaded
-      lastPage.drawText(`Authorized by: ${callerProfile.full_name}`, {
+      // Draw clean text signature badge if no signature image uploaded yet
+      lastPage.drawText(`Authorized: ${callerProfile.full_name}`, {
         x: targetX,
-        y: targetY + 30,
-        size: 9,
+        y: targetY + 20 * scaleFactor,
+        size: 9.5 * scaleFactor,
         color: rgb(0.1, 0.2, 0.45),
       })
     }
 
-    // 7. Stamp label
-    const stampLabel = `[ ${stampType || 'APPROVED'} ]`
-    lastPage.drawText(stampLabel, {
-      x: targetX,
-      y: targetY + 75,
-      size: 11,
-      color: rgb(0.05, 0.45, 0.15),
-    })
+    // 7. Stamp label (Only draw if NOT SIGNATURE_ONLY mode)
+    if (stampType !== 'SIGNATURE_ONLY') {
+      const stampLabel = `[ ${stampType || 'APPROVED'} ]`
+      lastPage.drawText(stampLabel, {
+        x: targetX,
+        y: targetY + sigHeight + (6 * scaleFactor),
+        size: 11 * scaleFactor,
+        color: rgb(0.05, 0.45, 0.15),
+      })
+    }
 
-    // 8. Manager Remarks
-    const commentBelow = !settings || settings.comment_position !== 'above-signature'
-    const noteY = commentBelow ? targetY - 14 : targetY + 92
-
+    // 8. Manager Remarks - Clean spacing below signature
+    let nextY = targetY - (14 * scaleFactor)
     if (managerNote && managerNote.trim().length > 0) {
       lastPage.drawText(`Note: ${managerNote}`, {
         x: targetX,
-        y: noteY,
-        size: 9,
+        y: nextY,
+        size: 8.5 * scaleFactor,
         color: rgb(0.15, 0.15, 0.15),
       })
+      nextY -= (12 * scaleFactor)
     }
 
     // 9. Timestamp
     const timestampStr = new Date().toLocaleString()
     if (settings?.include_datetime !== false) {
-      const dtY = managerNote ? (commentBelow ? targetY - 26 : noteY - 12) : targetY - 14
       lastPage.drawText(`Date: ${timestampStr}`, {
         x: targetX,
-        y: dtY,
-        size: 8,
+        y: nextY,
+        size: 7.5 * scaleFactor,
         color: rgb(0.35, 0.35, 0.35),
       })
     }
@@ -216,17 +221,21 @@ export async function POST(request: Request) {
         const qrImageBytes = Buffer.from(base64Data, 'base64')
         const qrImage = await pdfDoc.embedPng(qrImageBytes)
 
+        const qrSize = 55 * scaleFactor
+        const qrX = targetX > width / 2 ? (40 * scaleFactor) : width - qrSize - (35 * scaleFactor)
+        const qrY = 35 * scaleFactor
+
         lastPage.drawImage(qrImage, {
-          x: targetX > width / 2 ? 40 : width - 90,
-          y: 40,
-          width: 55,
-          height: 55,
+          x: qrX,
+          y: qrY,
+          width: qrSize,
+          height: qrSize,
         })
 
         lastPage.drawText(`Code: ${verificationCode}`, {
-          x: targetX > width / 2 ? 40 : width - 90,
-          y: 28,
-          size: 7,
+          x: qrX,
+          y: qrY - (10 * scaleFactor),
+          size: 7 * scaleFactor,
           color: rgb(0.25, 0.25, 0.25),
         })
       } catch (qrErr) {

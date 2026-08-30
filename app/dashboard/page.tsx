@@ -154,41 +154,76 @@ function DashboardContent() {
     router.push('/login')
   }
 
-  // Process captured photo through Canvas API → grayscale + contrast = scan look
+  // Process captured photo through Canvas API → downscale to 150 DPI A4 + grayscale + contrast = lightweight scan
   const processImageAsScan = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = new Image()
       const url = URL.createObjectURL(file)
       img.onload = () => {
+        // Standard document scan max dimensions (1240 x 1754 px at 150 DPI)
+        const MAX_WIDTH = 1240
+        const MAX_HEIGHT = 1754
+        let width = img.width
+        let height = img.height
+
+        if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+          if (width / height > MAX_WIDTH / MAX_HEIGHT) {
+            height = Math.round((height * MAX_WIDTH) / width)
+            width = MAX_WIDTH
+          } else {
+            width = Math.round((width * MAX_HEIGHT) / height)
+            height = MAX_HEIGHT
+          }
+        }
+
         const canvas = document.createElement('canvas')
-        canvas.width = img.width
-        canvas.height = img.height
+        canvas.width = width
+        canvas.height = height
         const ctx = canvas.getContext('2d')
         if (!ctx) { reject(new Error('Canvas not supported')); return }
-        // Apply document scan filter: grayscale + enhanced contrast + slight brightness
-        ctx.filter = 'grayscale(100%) contrast(1.6) brightness(1.08)'
-        ctx.drawImage(img, 0, 0)
+
+        // Apply clean document scan filter: grayscale + enhanced contrast + slight brightness
+        ctx.filter = 'grayscale(100%) contrast(1.5) brightness(1.05)'
+        ctx.drawImage(img, 0, 0, width, height)
         URL.revokeObjectURL(url)
+
+        // Compress at 0.78 quality JPEG (super crisp text, file size ~150KB-250KB)
         canvas.toBlob((blob) => {
           if (blob) resolve(blob)
           else reject(new Error('Failed to process image'))
-        }, 'image/jpeg', 0.92)
+        }, 'image/jpeg', 0.78)
       }
       img.onerror = () => reject(new Error('Failed to load image'))
       img.src = url
     })
   }
 
-  // Auto-compile pages list → PDF blob
+  // Auto-compile pages list → Standard A4 PDF (595.28 x 841.89 points)
   const compilePagesToPdf = async (pages: { blob: Blob }[]): Promise<File> => {
     const pdfDoc = await PDFDocument.create()
+    const A4_WIDTH = 595.28
+    const A4_HEIGHT = 841.89
+
     for (const pageItem of pages) {
       const imageBytes = await pageItem.blob.arrayBuffer()
       const img = pageItem.blob.type.includes('png')
         ? await pdfDoc.embedPng(imageBytes)
         : await pdfDoc.embedJpg(imageBytes)
-      const page = pdfDoc.addPage([img.width, img.height])
-      page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height })
+
+      // Fit image into standard A4 page maintaining aspect ratio
+      const scale = Math.min(A4_WIDTH / img.width, A4_HEIGHT / img.height)
+      const scaledWidth = img.width * scale
+      const scaledHeight = img.height * scale
+      const posX = (A4_WIDTH - scaledWidth) / 2
+      const posY = (A4_HEIGHT - scaledHeight) / 2
+
+      const page = pdfDoc.addPage([A4_WIDTH, A4_HEIGHT])
+      page.drawImage(img, {
+        x: posX,
+        y: posY,
+        width: scaledWidth,
+        height: scaledHeight,
+      })
     }
     const pdfBytes = await pdfDoc.save()
     const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' })
@@ -657,6 +692,7 @@ function DashboardContent() {
                   <select value={stampType} onChange={(e) => setStampType(e.target.value)}
                     className="w-full h-10 px-3 rounded-xl bg-[#04091a] border border-[#1a2e4a] text-white text-xs outline-none focus:border-indigo-500/50">
                     <option value="APPROVED">APPROVED & AUTHORIZED</option>
+                    <option value="SIGNATURE_ONLY">✍️ CLEAN SIGNATURE ONLY (No Text Above)</option>
                     <option value="RECOMMENDED">RECOMMENDED</option>
                     <option value="VERIFIED">VERIFIED & CERTIFIED</option>
                   </select>
@@ -777,10 +813,17 @@ function DashboardContent() {
                         isDragging ? 'border-indigo-500 ring-4 ring-indigo-400/20' : 'border-emerald-600'
                       }`}
                     >
-                      <div className="flex items-center gap-2 border-b border-slate-200 pb-1 mb-1.5">
-                        <span className="text-[10px] font-black uppercase text-emerald-800">[{stampType}]</span>
-                        <Move className="w-3 h-3 text-slate-400 ml-auto" />
-                      </div>
+                      {stampType !== 'SIGNATURE_ONLY' ? (
+                        <div className="flex items-center gap-2 border-b border-slate-200 pb-1 mb-1.5">
+                          <span className="text-[10px] font-black uppercase text-emerald-800">[{stampType}]</span>
+                          <Move className="w-3 h-3 text-slate-400 ml-auto" />
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 pb-1 mb-1">
+                          <span className="text-[9px] font-bold text-indigo-700">✍️ [CLEAN SIGNATURE]</span>
+                          <Move className="w-3 h-3 text-slate-400 ml-auto" />
+                        </div>
+                      )}
                       <div className="flex items-center gap-2">
                         <div className="w-20 h-10 border-2 border-dashed border-slate-300 rounded bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 font-bold">
                           ✍️ [SIGNATURE]
