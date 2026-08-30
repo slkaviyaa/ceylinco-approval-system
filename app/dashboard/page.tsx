@@ -189,11 +189,17 @@ function DashboardContent() {
 
         // Compress at 0.78 quality JPEG (super crisp text, file size ~150KB-250KB)
         canvas.toBlob((blob) => {
+          // Free canvas memory immediately for low-memory mobile devices like iPhone 7
+          canvas.width = 0
+          canvas.height = 0
           if (blob) resolve(blob)
           else reject(new Error('Failed to process image'))
         }, 'image/jpeg', 0.78)
       }
-      img.onerror = () => reject(new Error('Failed to load image'))
+      img.onerror = () => {
+        URL.revokeObjectURL(url)
+        reject(new Error('Failed to load image'))
+      }
       img.src = url
     })
   }
@@ -518,13 +524,16 @@ function DashboardContent() {
       {/* ─── Upload Dialog ─── */}
       {uploadDialogOpen && (
         <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-          <DialogContent className="bg-[#0b1525] border-[#1a2e4a] text-slate-100 max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl">
-            <DialogHeader>
+          <DialogContent className="bg-[#0b1525] border-[#1a2e4a] text-slate-100 max-w-lg w-[95vw] max-h-[92vh] max-h-[92dvh] overflow-y-auto rounded-2xl p-4 sm:p-6">
+            <DialogHeader className="pb-2 border-b border-[#1a2e4a]">
               <DialogTitle className="text-white text-base flex items-center gap-2">
-                <UploadCloud className="w-4 h-4 text-indigo-400" />
-                Submit Document for Approval
+                <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-500/25 flex items-center justify-center">
+                  <UploadCloud className="w-4 h-4 text-blue-400" />
+                </div>
+                New Document Submission
               </DialogTitle>
             </DialogHeader>
+
             <form onSubmit={handleUploadDocument} className="space-y-4 mt-1">
               <div className="space-y-1.5">
                 <Label className="text-slate-400 text-[11px] uppercase tracking-wider font-semibold">Document Title / Policy Number</Label>
@@ -641,7 +650,7 @@ function DashboardContent() {
       {/* ─── Endorse Dialog ─── */}
       {actionDialogOpen && (
         <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
-          <DialogContent className="bg-[#0b1525] border-[#1a2e4a] text-slate-100 w-[96vw] max-w-[96vw] sm:max-w-[96vw] lg:max-w-7xl h-[92vh] max-h-[96vh] flex flex-col p-4 sm:p-5 rounded-2xl">
+          <DialogContent className="bg-[#0b1525] border-[#1a2e4a] text-slate-100 w-[96vw] max-w-[96vw] sm:max-w-[96vw] lg:max-w-7xl h-[92vh] h-[92dvh] max-h-[96dvh] flex flex-col p-3 sm:p-5 rounded-2xl">
             <DialogHeader className="shrink-0 pb-3 border-b border-[#1a2e4a]">
               <DialogTitle className="text-white text-sm sm:text-base flex items-center justify-between">
                 <span className="flex items-center gap-2">

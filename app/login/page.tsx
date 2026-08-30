@@ -42,7 +42,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex bg-[#04091a]">
+    <div className="min-h-screen min-h-[100dvh] flex bg-[#04091a]">
       {/* Left — Branding Panel */}
       <div className="hidden lg:flex lg:w-[45%] relative flex-col items-start justify-between p-12 overflow-hidden">
         {/* Background gradient */}

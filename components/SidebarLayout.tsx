@@ -67,7 +67,7 @@ export default function SidebarLayout({ children, profile, onSignOut }: any) {
   )
 
   return (
-    <div className="flex h-screen bg-[#04091a] text-slate-100 overflow-hidden">
+    <div className="flex h-screen h-[100dvh] bg-[#04091a] text-slate-100 overflow-hidden">
       {/* Mobile backdrop */}
       {sidebarOpen && (
         <div
