@@ -112,8 +112,8 @@ function DashboardContent() {
         .select('*')
         .eq('id', user.id)
         .maybeSingle()
+
       if (error) {
-        // If JWT expired or unauthorized, sign out to reset session
         if (error.code === 'PGRST301' || error.message?.toLowerCase().includes('jwt') || error.message?.toLowerCase().includes('unauthorized')) {
           await supabase.auth.signOut()
           router.push('/login')
@@ -129,24 +129,56 @@ function DashboardContent() {
   }, [supabase, router])
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user }, error }) => {
-      if (error || !user) {
-        router.push('/login')
-        return
+    let isMounted = true
+
+    const initAuth = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession()
+        if (error || !session?.user) {
+          if (isMounted) {
+            setLoading(false)
+            router.push('/login')
+          }
+          return
+        }
+        if (isMounted) {
+          await loadUserData(session.user)
+          await fetchDocuments()
+        }
+      } catch (err) {
+        console.warn('Init auth error:', err)
+        if (isMounted) {
+          setLoading(false)
+          router.push('/login')
+        }
       }
-      loadUserData(user)
-    })
+    }
+
+    initAuth()
+
     const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        if (session?.user) loadUserData(session.user)
-        else if (event === 'SIGNED_OUT') router.push('/login')
+        if (!isMounted) return
+        if (session?.user) {
+          loadUserData(session.user)
+          fetchDocuments()
+        } else if (event === 'SIGNED_OUT') {
+          setProfile(null)
+          setLoading(false)
+          router.push('/login')
+        }
       }
     )
-    fetchDocuments()
+
     const channel = supabase.channel('realtime_docs')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, () => fetchDocuments())
       .subscribe()
-    return () => { authListener?.unsubscribe(); supabase.removeChannel(channel) }
+
+    return () => {
+      isMounted = false
+      authListener?.unsubscribe()
+      supabase.removeChannel(channel)
+    }
   }, [supabase, router, loadUserData, fetchDocuments])
 
   const handleSignOut = async () => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,14 @@ export default function LoginPage() {
   const [errorMsg, setErrorMsg] = useState('')
   const router = useRouter()
   const supabase = createClient()
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        window.location.replace('/dashboard')
+      }
+    })
+  }, [supabase])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -33,7 +41,9 @@ export default function LoginPage() {
         password,
       })
       if (error) throw new Error(error.message || 'Invalid credentials.')
-      if (data?.session) window.location.href = '/dashboard'
+      if (data?.session) {
+        window.location.replace('/dashboard')
+      }
     } catch (error: any) {
       setErrorMsg(error.message || 'Login failed. Please check your credentials.')
     } finally {
