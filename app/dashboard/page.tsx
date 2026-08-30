@@ -120,7 +120,23 @@ function DashboardContent() {
           return
         }
       }
-      if (profileData) setProfile(profileData as Profile)
+
+      if (profileData) {
+        setProfile(profileData as Profile)
+      } else {
+        // Fallback profile if profile row does not exist in DB yet
+        const meta = user.user_metadata || {}
+        const fallbackProfile: Profile = {
+          id: user.id,
+          email: user.email || '',
+          username: meta.username || user.email?.split('@')[0] || 'User',
+          full_name: meta.full_name || user.email?.split('@')[0] || 'Staff Member',
+          role: (meta.role as any) || 'counter',
+          counter_name: meta.counter_name || 'Main Counter',
+          signature_url: null,
+        }
+        setProfile(fallbackProfile)
+      }
     } catch (err) {
       console.warn('loadUserData error:', err)
     } finally {
@@ -131,37 +147,49 @@ function DashboardContent() {
   useEffect(() => {
     let isMounted = true
 
-    const initAuth = async () => {
+    const checkSessionAndLoad = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession()
-        if (error || !session?.user) {
+        const { data: { session }, error: sessErr } = await supabase.auth.getSession()
+        if (sessErr || !session?.user) {
           if (isMounted) {
             setLoading(false)
             router.push('/login')
           }
           return
         }
+
         if (isMounted) {
           await loadUserData(session.user)
           await fetchDocuments()
         }
       } catch (err) {
-        console.warn('Init auth error:', err)
+        console.error('Auth initialization error:', err)
         if (isMounted) {
           setLoading(false)
           router.push('/login')
         }
+      } finally {
+        if (isMounted) {
+          setLoading(false)
+        }
       }
     }
 
-    initAuth()
+    checkSessionAndLoad()
+
+    // Safety fallback timer so PWA / iOS never hangs on loading screen
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) {
+        setLoading(false)
+      }
+    }, 3500)
 
     const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      async (event, session) => {
         if (!isMounted) return
         if (session?.user) {
-          loadUserData(session.user)
-          fetchDocuments()
+          await loadUserData(session.user)
+          await fetchDocuments()
         } else if (event === 'SIGNED_OUT') {
           setProfile(null)
           setLoading(false)
@@ -176,6 +204,7 @@ function DashboardContent() {
 
     return () => {
       isMounted = false
+      clearTimeout(safetyTimer)
       authListener?.unsubscribe()
       supabase.removeChannel(channel)
     }

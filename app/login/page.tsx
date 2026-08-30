@@ -30,17 +30,51 @@ export default function LoginPage() {
     setLoading(true)
     setErrorMsg('')
 
-    const cleanInput = identifier.trim().toLowerCase()
-    const loginEmail = cleanInput.includes('@')
-      ? cleanInput
-      : `${cleanInput.replace(/\s+/g, '')}@counter.ceylinco.lk`
+    const cleanInput = identifier.trim()
+    let loginEmail = cleanInput.toLowerCase()
+
+    // If identifier doesn't contain '@', look up email from profiles by username
+    if (!loginEmail.includes('@')) {
+      const sanitized = cleanInput.toLowerCase().replace(/\s+/g, '')
+      try {
+        const { data: profileMatch } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('username', sanitized)
+          .maybeSingle()
+
+        if (profileMatch?.email) {
+          loginEmail = profileMatch.email
+        } else {
+          loginEmail = `${sanitized}@counter.ceylinco.lk`
+        }
+      } catch {
+        loginEmail = `${sanitized}@counter.ceylinco.lk`
+      }
+    }
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email: loginEmail,
         password,
       })
-      if (error) throw new Error(error.message || 'Invalid credentials.')
+
+      if (error) {
+        // Second fallback attempt for alternative domains
+        if (!identifier.includes('@')) {
+          const sanitized = cleanInput.toLowerCase().replace(/\s+/g, '')
+          const secondTry = await supabase.auth.signInWithPassword({
+            email: `${sanitized}@ceylinco.lk`,
+            password,
+          })
+          if (secondTry.data?.session) {
+            window.location.replace('/dashboard')
+            return
+          }
+        }
+        throw new Error(error.message || 'Invalid username or password.')
+      }
+
       if (data?.session) {
         window.location.replace('/dashboard')
       }
