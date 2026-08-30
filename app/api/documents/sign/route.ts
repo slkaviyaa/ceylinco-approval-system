@@ -261,20 +261,33 @@ export async function POST(request: Request) {
       .from('documents')
       .getPublicUrl(signedFilePath)
 
-    // 13. Update Document Record
-    const { error: updateError } = await supabaseAdmin
+    // 13. Update Document Record (Schema-safe fallback)
+    const basePayload: Record<string, any> = {
+      status: 'approved',
+      stamp_type: stampType || 'APPROVED',
+      manager_note: managerNote || null,
+      signed_file_url: signedPublicUrl,
+      verification_code: verificationCode,
+      updated_at: new Date().toISOString(),
+    }
+
+    let { error: updateError } = await supabaseAdmin
       .from('documents')
       .update({
-        status: 'approved',
-        stamp_type: stampType || 'APPROVED',
-        manager_note: managerNote || null,
-        signed_file_url: signedPublicUrl,
-        verification_code: verificationCode,
+        ...basePayload,
         approved_by: callerProfile.id,
         approved_by_name: callerProfile.full_name,
-        updated_at: new Date().toISOString(),
       })
       .eq('id', documentId)
+
+    // Fallback if approved_by column doesn't exist in Supabase documents table
+    if (updateError && updateError.message?.includes('approved_by')) {
+      const fallback = await supabaseAdmin
+        .from('documents')
+        .update(basePayload)
+        .eq('id', documentId)
+      updateError = fallback.error
+    }
 
     if (updateError) {
       throw new Error(`Database update error: ${updateError.message}`)
