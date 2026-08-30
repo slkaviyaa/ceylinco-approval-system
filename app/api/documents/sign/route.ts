@@ -13,23 +13,47 @@ const supabaseAdmin = createClient(
 
 export async function POST(request: Request) {
   try {
+    // ─── FIX 1: Auth check — verify caller is a manager or admin ───
+    const authHeader = request.headers.get('Authorization')
+    const token = authHeader?.replace('Bearer ', '').trim()
+
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized: no session token' }, { status: 401 })
+    }
+
+    const { data: { user: callerUser }, error: authError } = await supabaseAdmin.auth.getUser(token)
+    if (authError || !callerUser) {
+      return NextResponse.json({ error: 'Unauthorized: invalid session' }, { status: 401 })
+    }
+
+    // FIX 1b: Fetch caller's profile to verify role
+    const { data: callerProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, full_name, role, signature_url')
+      .eq('id', callerUser.id)
+      .maybeSingle()
+
+    if (!callerProfile || (callerProfile.role !== 'manager' && callerProfile.role !== 'admin')) {
+      return NextResponse.json({ error: 'Forbidden: only managers and admins can endorse documents' }, { status: 403 })
+    }
+
     const { documentId, managerNote, stampType, customCoordinates } = await request.json()
 
-    // 1. Fetch document and manager profile
-    const [docResult, settingsResult, managersResult] = await Promise.all([
+    // 1. Fetch document and settings
+    const [docResult, settingsResult] = await Promise.all([
       supabaseAdmin.from('documents').select('*').eq('id', documentId).single(),
       supabaseAdmin.from('approval_settings').select('*').eq('id', 1).maybeSingle(),
-      supabaseAdmin.from('profiles').select('*').eq('role', 'manager').limit(1),
     ])
 
     const doc = docResult.data
     if (!doc) throw new Error('Document not found')
 
     const settings = settingsResult.data
-    const manager = managersResult.data?.[0]
-    const signatureUrl = manager?.signature_url
 
-    // 2. Fetch original PDF & Manager signature
+    // ─── FIX 2: Use the authenticated manager's own signature ───
+    const signatureUrl = callerProfile.signature_url
+
+    // 2. Fetch original PDF & manager signature
     const [pdfResponse, sigResponse] = await Promise.all([
       fetch(doc.file_url),
       signatureUrl ? fetch(signatureUrl) : Promise.resolve(null),
@@ -41,23 +65,38 @@ export async function POST(request: Request) {
     const lastPage = pages[pages.length - 1]
     const { width, height } = lastPage.getSize()
 
-    // 3. Exact target coordinates mapping
-    let targetX = width - 200
-    let targetY = 80
+    // ─── FIX 3: Respect approval_settings.signature_position when no drag ───
+    let targetX: number
+    let targetY: number
 
     if (customCoordinates && typeof customCoordinates.x === 'number') {
+      // Custom drag position from canvas
       targetX = (customCoordinates.x / 100) * width - 80
       targetY = height - (customCoordinates.y / 100) * height - 40
+    } else {
+      // Use settings position as default
+      const pos = settings?.signature_position || 'bottom-right'
+      if (pos === 'bottom-left') {
+        targetX = 40
+        targetY = 80
+      } else if (pos === 'top-right') {
+        targetX = width - 200
+        targetY = height - 120
+      } else {
+        // bottom-right (default)
+        targetX = width - 200
+        targetY = 80
+      }
     }
 
     targetX = Math.max(20, Math.min(width - 200, targetX))
     targetY = Math.max(30, Math.min(height - 100, targetY))
 
-    // 4. Draw Signature Image with Large High-Resolution Scale
+    // 4. Draw signature image
     if (sigResponse && sigResponse.ok) {
       try {
         const sigBytes = await sigResponse.arrayBuffer()
-        const sigImage = signatureUrl.includes('png')
+        const sigImage = signatureUrl!.includes('png')
           ? await pdfDoc.embedPng(sigBytes)
           : await pdfDoc.embedJpg(sigBytes)
 
@@ -72,7 +111,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 5. Stamp Label & Remarks (Only print if manager typed a note)
+    // 5. Stamp label
     const stampLabel = `[ ${stampType} ]`
     lastPage.drawText(stampLabel, {
       x: targetX,
@@ -81,19 +120,23 @@ export async function POST(request: Request) {
       color: rgb(0.05, 0.45, 0.15),
     })
 
+    // ─── FIX 3b: Use comment_position from settings ───
+    const commentBelow = !settings || settings.comment_position !== 'above-signature'
+    const noteY = commentBelow ? targetY - 14 : targetY + 92
+
     if (managerNote && managerNote.trim().length > 0) {
       lastPage.drawText(`Note: ${managerNote}`, {
         x: targetX,
-        y: targetY - 14,
+        y: noteY,
         size: 9,
         color: rgb(0.15, 0.15, 0.15),
       })
     }
 
-    // 6. Date & Timestamp
+    // 6. Timestamp
     const timestampStr = new Date().toLocaleString()
     if (settings?.include_datetime !== false) {
-      const dtY = managerNote ? targetY - 26 : targetY - 14
+      const dtY = managerNote ? (commentBelow ? targetY - 26 : noteY - 12) : targetY - 14
       lastPage.drawText(`Date: ${timestampStr}`, {
         x: targetX,
         y: dtY,
@@ -131,7 +174,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 8. Bottom Agency Watermark
+    // 8. Bottom watermark
     if (settings?.include_watermark !== false) {
       lastPage.drawText('Certified via Ceylinco VIP Approval Network • Powered by Ceylon Digi Solutions', {
         x: 40,
@@ -142,7 +185,7 @@ export async function POST(request: Request) {
     }
 
     const modifiedPdfBytes = await pdfDoc.save()
-    const signedFilePath = `signed/${Date.now()}_${doc.title}.pdf`
+    const signedFilePath = `signed/${Date.now()}_${doc.title.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
 
     await supabaseAdmin.storage
       .from('documents')
@@ -152,6 +195,7 @@ export async function POST(request: Request) {
       .from('documents')
       .getPublicUrl(signedFilePath)
 
+    // ─── FIX 4: Track approved_by (the authenticated manager) ───
     await supabaseAdmin
       .from('documents')
       .update({
@@ -160,6 +204,8 @@ export async function POST(request: Request) {
         manager_note: managerNote || null,
         signed_file_url: signedPublicUrl,
         verification_code: verificationCode,
+        approved_by: callerProfile.id,
+        approved_by_name: callerProfile.full_name,
         updated_at: new Date().toISOString(),
       })
       .eq('id', documentId)
