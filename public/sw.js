@@ -1,18 +1,6 @@
-const CACHE_NAME = 'ceylinco-pwa-v4';
-const ASSETS_TO_CACHE = [
-  '/',
-  '/dashboard',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png'
-];
+const CACHE_NAME = 'ceylinco-pwa-v5';
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    })
-  );
   self.skipWaiting();
 });
 
@@ -31,10 +19,26 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Never intercept non-GET requests or API requests or cross-origin requests
   if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith('/api') || url.origin !== self.location.origin) return;
+
   event.respondWith(
-    fetch(event.request).catch(() => {
-      return caches.match(event.request) || caches.match('/dashboard');
+    fetch(event.request).catch(async () => {
+      try {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        const dashboardCache = await caches.match('/dashboard');
+        if (dashboardCache) return dashboardCache;
+      } catch (e) {
+        // ignore cache error
+      }
+      return new Response('Network error occurred', {
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: { 'Content-Type': 'text/plain' }
+      });
     })
   );
 });

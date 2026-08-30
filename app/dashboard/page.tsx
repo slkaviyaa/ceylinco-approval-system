@@ -14,7 +14,7 @@ import {
 import {
   FileText, UploadCloud, Download, FileCheck, Loader2, PenTool,
   Camera, Search, QrCode, Clock, CheckCircle2, XCircle, AlertCircle,
-  Move, Trash2, TrendingUp, Plus
+  Move, Trash2, TrendingUp, Plus, BookOpen, ExternalLink
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { PDFDocument } from 'pdf-lib'
@@ -82,8 +82,10 @@ function DashboardContent() {
   const [managerNote, setManagerNote] = useState('')
   const [stampType, setStampType] = useState('APPROVED')
   const [actionLoading, setActionLoading] = useState(false)
+  const [modalError, setModalError] = useState('')
+  const [canvasMode, setCanvasMode] = useState<'stamp' | 'read'>('stamp')
 
-  const [stampPos, setStampPos] = useState({ x: 70, y: 75 })
+  const [stampPos, setStampPos] = useState({ x: 75, y: 75 })
   const [isDragging, setIsDragging] = useState(false)
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -285,29 +287,49 @@ function DashboardContent() {
   const handleManagerDecision = async (status: 'approved' | 'rejected') => {
     if (!selectedDoc) return
     setActionLoading(true)
+    setModalError('')
     try {
       if (status === 'approved') {
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session }, error: sessError } = await supabase.auth.getSession()
+        if (sessError || !session?.access_token) {
+          throw new Error('Your session expired. Please refresh the page or log in again.')
+        }
+
         const res = await fetch('/api/documents/sign', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token || ''}`,
+            'Authorization': `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ documentId: selectedDoc.id, managerNote, stampType, customCoordinates: stampPos }),
+          body: JSON.stringify({
+            documentId: selectedDoc.id,
+            managerNote,
+            stampType,
+            customCoordinates: stampPos
+          }),
         })
+
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Failed to endorse document')
       } else {
-        await supabase.from('documents').update({
-          status: 'rejected', manager_note: managerNote, updated_at: new Date().toISOString()
+        const { error } = await supabase.from('documents').update({
+          status: 'rejected',
+          manager_note: managerNote || null,
+          updated_at: new Date().toISOString()
         }).eq('id', selectedDoc.id)
+        if (error) throw error
       }
-      setActionDialogOpen(false); setSelectedDoc(null); setManagerNote('')
+
+      setActionDialogOpen(false)
+      setSelectedDoc(null)
+      setManagerNote('')
+      setModalError('')
       setBannerMsg({ type: 'success', text: `Document ${status} successfully!` })
       fetchDocuments()
     } catch (err: any) {
-      setBannerMsg({ type: 'error', text: err.message || 'Action failed' })
+      const errMsg = err.message || 'Action failed'
+      setModalError(errMsg)
+      setBannerMsg({ type: 'error', text: errMsg })
     } finally {
       setActionLoading(false)
     }
@@ -593,9 +615,31 @@ function DashboardContent() {
                   </div>
                   Endorsement & Stamp Placement Canvas
                 </span>
-                <span className="text-xs text-slate-400 font-normal truncate max-w-sm">{selectedDoc?.title}</span>
+                <div className="flex items-center gap-2">
+                  {selectedDoc?.file_url && (
+                    <a
+                      href={selectedDoc.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#111c35] hover:bg-indigo-600 border border-[#1a2e4a] text-xs text-indigo-300 hover:text-white transition font-medium shadow-sm"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Open Full Document
+                    </a>
+                  )}
+                  <span className="text-xs text-slate-400 font-normal truncate max-w-xs hidden md:inline">
+                    {selectedDoc?.title}
+                  </span>
+                </div>
               </DialogTitle>
             </DialogHeader>
+
+            {modalError && (
+              <div className="my-2 p-3 bg-rose-950/60 border border-rose-800/80 rounded-xl text-rose-300 text-xs flex items-center gap-2 shrink-0">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>{modalError}</span>
+              </div>
+            )}
 
             <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0 pt-2 overflow-hidden">
               {/* Controls Panel */}
@@ -629,7 +673,7 @@ function DashboardContent() {
                 </div>
 
                 <div className="p-3 bg-indigo-950/30 border border-indigo-500/20 rounded-xl text-[11px] text-indigo-300 leading-relaxed">
-                  👆 <strong>Drag the stamp box</strong> directly onto the document preview to position the manager endorsement.
+                  💡 <strong>Mode Guide:</strong> Use <strong>Scroll & Read</strong> to scroll and review all pages, then switch to <strong>Stamp Placement</strong> to position the manager seal.
                 </div>
 
                 <div className="mt-auto pt-2 space-y-2">
@@ -645,46 +689,108 @@ function DashboardContent() {
                 </div>
               </div>
 
-              {/* Canvas Area */}
+              {/* Canvas & Document Area */}
               <div className="flex-1 min-h-[300px] lg:min-h-0 h-full flex flex-col bg-[#04091a] rounded-xl border border-[#1a2e4a] p-2 overflow-hidden">
+                {/* Top Mode Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-1 border-b border-[#1a2e4a] shrink-0">
+                  <div className="flex items-center gap-1 bg-[#0b1525] p-1 rounded-xl border border-[#1a2e4a]">
+                    <button
+                      type="button"
+                      onClick={() => setCanvasMode('stamp')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                        canvasMode === 'stamp'
+                          ? 'bg-indigo-600 text-white shadow-md'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Move className="w-3.5 h-3.5" />
+                      Stamp Placement Mode
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCanvasMode('read')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                        canvasMode === 'read'
+                          ? 'bg-blue-600 text-white shadow-md'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      Scroll & Read Mode
+                    </button>
+                  </div>
+
+                  {canvasMode === 'stamp' && (
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <span className="text-[11px] text-slate-500 hidden sm:inline">Presets:</span>
+                      <button
+                        type="button"
+                        onClick={() => setStampPos({ x: 80, y: 80 })}
+                        className="px-2 py-0.5 rounded-lg bg-[#0b1525] border border-[#1a2e4a] text-[10px] text-slate-300 hover:text-indigo-300 hover:border-indigo-500/40"
+                      >
+                        Bottom Right
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStampPos({ x: 20, y: 80 })}
+                        className="px-2 py-0.5 rounded-lg bg-[#0b1525] border border-[#1a2e4a] text-[10px] text-slate-300 hover:text-indigo-300 hover:border-indigo-500/40"
+                      >
+                        Bottom Left
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStampPos({ x: 80, y: 20 })}
+                        className="px-2 py-0.5 rounded-lg bg-[#0b1525] border border-[#1a2e4a] text-[10px] text-slate-300 hover:text-indigo-300 hover:border-indigo-500/40"
+                      >
+                        Top Right
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <div
                   ref={canvasRef}
-                  onMouseMove={handleCanvasMouseMove}
-                  onMouseUp={() => setIsDragging(false)}
-                  onMouseLeave={() => setIsDragging(false)}
-                  onTouchMove={handleCanvasTouchMove}
-                  onTouchEnd={() => setIsDragging(false)}
-                  className="relative w-full h-full bg-slate-900 rounded-lg shadow-inner overflow-hidden select-none cursor-crosshair flex items-center justify-center"
-                  style={{ touchAction: 'none' }}
+                  onMouseMove={canvasMode === 'stamp' ? handleCanvasMouseMove : undefined}
+                  onMouseUp={canvasMode === 'stamp' ? () => setIsDragging(false) : undefined}
+                  onMouseLeave={canvasMode === 'stamp' ? () => setIsDragging(false) : undefined}
+                  onTouchMove={canvasMode === 'stamp' ? handleCanvasTouchMove : undefined}
+                  onTouchEnd={canvasMode === 'stamp' ? () => setIsDragging(false) : undefined}
+                  className="relative flex-1 w-full h-full bg-slate-900 rounded-lg shadow-inner overflow-hidden select-none flex items-center justify-center"
+                  style={{ touchAction: canvasMode === 'stamp' ? 'none' : 'auto' }}
                 >
                   <iframe
-                    src={`${selectedDoc?.file_url}#toolbar=0&navpanes=0&scrollbar=0`}
+                    src={`${selectedDoc?.file_url}#toolbar=1&navpanes=0`}
                     loading="lazy"
-                    className="w-full h-full pointer-events-none opacity-90"
+                    className={`w-full h-full rounded-lg ${
+                      canvasMode === 'stamp' ? 'pointer-events-none opacity-90' : 'pointer-events-auto'
+                    }`}
                     title="Doc Preview"
                   />
-                  {/* Draggable Stamp */}
-                  <div
-                    onMouseDown={() => setIsDragging(true)}
-                    onTouchStart={() => setIsDragging(true)}
-                    style={{ left: `${stampPos.x}%`, top: `${stampPos.y}%`, transform: 'translate(-50%, -50%)', touchAction: 'none' }}
-                    className={`absolute p-2.5 rounded-lg shadow-2xl cursor-grab active:cursor-grabbing bg-white/95 backdrop-blur text-slate-900 border-2 ${
-                      isDragging ? 'border-indigo-500 ring-4 ring-indigo-400/20' : 'border-emerald-600'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 border-b border-slate-200 pb-1 mb-1.5">
-                      <span className="text-[10px] font-black uppercase text-emerald-800">[{stampType}]</span>
-                      <Move className="w-3 h-3 text-slate-400 ml-auto" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-20 h-10 border-2 border-dashed border-slate-300 rounded bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 font-bold">
-                        ✍️ [SIGNATURE]
+
+                  {/* Draggable Stamp (Only interactive in Stamp Mode) */}
+                  {canvasMode === 'stamp' && (
+                    <div
+                      onMouseDown={() => setIsDragging(true)}
+                      onTouchStart={() => setIsDragging(true)}
+                      style={{ left: `${stampPos.x}%`, top: `${stampPos.y}%`, transform: 'translate(-50%, -50%)', touchAction: 'none' }}
+                      className={`absolute p-2.5 rounded-lg shadow-2xl cursor-grab active:cursor-grabbing bg-white/95 backdrop-blur text-slate-900 border-2 ${
+                        isDragging ? 'border-indigo-500 ring-4 ring-indigo-400/20' : 'border-emerald-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 border-b border-slate-200 pb-1 mb-1.5">
+                        <span className="text-[10px] font-black uppercase text-emerald-800">[{stampType}]</span>
+                        <Move className="w-3 h-3 text-slate-400 ml-auto" />
                       </div>
-                      <div className="w-7 h-7 bg-slate-900 text-white rounded flex items-center justify-center text-[7px] font-bold">QR</div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-20 h-10 border-2 border-dashed border-slate-300 rounded bg-slate-50 flex items-center justify-center text-[9px] text-slate-400 font-bold">
+                          ✍️ [SIGNATURE]
+                        </div>
+                        <div className="w-7 h-7 bg-slate-900 text-white rounded flex items-center justify-center text-[7px] font-bold">QR</div>
+                      </div>
+                      {managerNote && <p className="text-[8px] text-slate-600 font-medium mt-1 max-w-[140px] truncate">Note: {managerNote}</p>}
+                      <p className="text-[7px] text-slate-400 mt-0.5">Date: {format(new Date(), 'dd/MM/yyyy')}</p>
                     </div>
-                    {managerNote && <p className="text-[8px] text-slate-600 font-medium mt-1 max-w-[140px] truncate">Note: {managerNote}</p>}
-                    <p className="text-[7px] text-slate-400 mt-0.5">Date: {format(new Date(), 'dd/MM/yyyy')}</p>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
