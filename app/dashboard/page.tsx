@@ -306,7 +306,7 @@ function DashboardContent() {
         try {
           const u = new URL(url)
           const parts = u.pathname.split('/documents/')
-          return parts.length > 1 ? parts[1] : null
+          return parts.length > 1 ? decodeURIComponent(parts[1]) : null
         } catch { return null }
       }
       const paths: string[] = []

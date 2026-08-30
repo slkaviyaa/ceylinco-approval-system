@@ -87,6 +87,15 @@ export default function ProfilePage() {
     if (!profile) return
     setUploadingImg(true)
     try {
+      if (profile.avatar_url) {
+        try {
+          const u = new URL(profile.avatar_url)
+          const parts = u.pathname.split('/documents/')
+          if (parts.length > 1) {
+            await supabase.storage.from('documents').remove([decodeURIComponent(parts[1])])
+          }
+        } catch { /* ignore */ }
+      }
       await supabase.from('profiles').update({ avatar_url: null }).eq('id', profile.id)
       setProfile({ ...profile, avatar_url: null })
       flash('Profile photo removed.')
@@ -137,9 +146,13 @@ export default function ProfilePage() {
     setCreatingUser(true)
     setCreateMsg(null)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch('/api/admin/create-user', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token || ''}`,
+        },
         body: JSON.stringify({
           username: newUsername, password: newPassword,
           full_name: newFullName, role: newRole,

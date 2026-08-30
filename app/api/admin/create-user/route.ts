@@ -3,16 +3,6 @@ import { NextResponse } from 'next/server'
 
 export async function POST(req: Request) {
   try {
-    const { username, password, full_name, role, counter_name } = await req.json()
-
-    if (!username || !password || !full_name || !role) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
-    }
-
-    // Clean username (lowercase, remove spaces)
-    const sanitizedUsername = username.trim().toLowerCase().replace(/\s+/g, '')
-    const internalEmail = `${sanitizedUsername}@counter.ceylinco.lk`
-
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -23,6 +13,38 @@ export async function POST(req: Request) {
         },
       }
     )
+
+    // Verify caller has valid admin session
+    const authHeader = req.headers.get('Authorization')
+    const token = authHeader?.replace('Bearer ', '').trim()
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized: Admin authentication token required' }, { status: 401 })
+    }
+
+    const { data: { user: callerUser }, error: authError } = await supabaseAdmin.auth.getUser(token)
+    if (authError || !callerUser) {
+      return NextResponse.json({ error: 'Unauthorized: Invalid admin session' }, { status: 401 })
+    }
+
+    const { data: callerProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('role')
+      .eq('id', callerUser.id)
+      .maybeSingle()
+
+    if (!callerProfile || callerProfile.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden: Only system administrators can create accounts' }, { status: 403 })
+    }
+
+    const { username, password, full_name, role, counter_name } = await req.json()
+
+    if (!username || !password || !full_name || !role) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
+
+    // Clean username (lowercase, remove spaces)
+    const sanitizedUsername = username.trim().toLowerCase().replace(/\s+/g, '')
+    const internalEmail = `${sanitizedUsername}@counter.ceylinco.lk`
 
     // Check if username already exists
     const { data: existingUser } = await supabaseAdmin
@@ -36,7 +58,7 @@ export async function POST(req: Request) {
     }
 
     // 1. Create the user in Supabase Auth using internal mapping
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email: internalEmail,
       password,
       email_confirm: true,
@@ -48,8 +70,8 @@ export async function POST(req: Request) {
       },
     })
 
-    if (authError) {
-      return NextResponse.json({ error: authError.message }, { status: 400 })
+    if (createError) {
+      return NextResponse.json({ error: createError.message }, { status: 400 })
     }
 
     // 2. Ensure profile entry is saved with username

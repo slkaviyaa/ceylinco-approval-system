@@ -4,7 +4,6 @@ import { PDFDocument, rgb } from 'pdf-lib'
 import QRCode from 'qrcode'
 
 export const runtime = 'nodejs'
-export const preferredRegion = ['sin1', 'bom1', 'iad1']
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -70,8 +69,8 @@ export async function POST(request: Request) {
     let targetY: number
 
     if (customCoordinates && typeof customCoordinates.x === 'number') {
-      // Custom drag position from canvas
-      targetX = (customCoordinates.x / 100) * width - 80
+      // Custom drag position from canvas (percentage based)
+      targetX = (customCoordinates.x / 100) * width - 85
       targetY = height - (customCoordinates.y / 100) * height - 40
     } else {
       // Use settings position as default
@@ -80,25 +79,29 @@ export async function POST(request: Request) {
         targetX = 40
         targetY = 80
       } else if (pos === 'top-right') {
-        targetX = width - 200
+        targetX = width - 210
         targetY = height - 120
       } else {
         // bottom-right (default)
-        targetX = width - 200
+        targetX = width - 210
         targetY = 80
       }
     }
 
-    targetX = Math.max(20, Math.min(width - 200, targetX))
-    targetY = Math.max(30, Math.min(height - 100, targetY))
+    // Clamp coordinates safely within printable PDF boundaries
+    targetX = Math.max(20, Math.min(width - 195, targetX))
+    targetY = Math.max(35, Math.min(height - 110, targetY))
 
     // 4. Draw signature image
     if (sigResponse && sigResponse.ok) {
       try {
         const sigBytes = await sigResponse.arrayBuffer()
-        const sigImage = signatureUrl!.includes('png')
-          ? await pdfDoc.embedPng(sigBytes)
-          : await pdfDoc.embedJpg(sigBytes)
+        let sigImage
+        try {
+          sigImage = await pdfDoc.embedPng(sigBytes)
+        } catch {
+          sigImage = await pdfDoc.embedJpg(sigBytes)
+        }
 
         lastPage.drawImage(sigImage, {
           x: targetX,
@@ -185,7 +188,8 @@ export async function POST(request: Request) {
     }
 
     const modifiedPdfBytes = await pdfDoc.save()
-    const signedFilePath = `signed/${Date.now()}_${doc.title.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
+    const cleanTitle = (doc.title || 'doc').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 35)
+    const signedFilePath = `signed/${Date.now()}_${cleanTitle}.pdf`
 
     await supabaseAdmin.storage
       .from('documents')
